@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>我要第一个溜</title>
+  <desc>兼容路径；图标原图为同目录 app-icon.png，生成入口为 icon-1.png。</desc>
+  <image href="app-icon.png" width="512" height="512"/>
+</svg>

@@ -1,0 +1,193 @@
+# 我要第一个溜 · 下班倒计时桌面挂件
+
+当前范围：暂不实现计薪功能，包括月薪配置、时薪/秒薪计算、收入展示、金额插值和薪资隐私开关。后续如需恢复，另行纳入开发范围。
+
+## 当前实现进度（2026-11-11）
+
+- 已编写：深色透明挂件、秒级倒计时、有效工时进度、五种工作状态、设置弹窗及校验、Rust 配置持久化、托盘菜单与悬停倒计时、置顶、快捷隐藏、工作日外卖提醒、自启动和 IP 末段显示。
+- 已通过完整 Rust 测试 11 项与前端测试 11 项。命令启动问题已处理：本机默认的 WindowsApps PowerShell 入口无法在当前沙箱启动，显式使用 `cmd.exe` 后 Cargo、Rust 与 Tauri CLI 正常运行。release exe 已成功生成并复制到 `artifacts/我要第一个溜.exe`；安装包因 NSIS 工具下载连接被拒绝尚未生成。Windows 系统功能仍需实机验收。
+- 视觉检查尚未完成：browser-skill 无法创建日志文件，电脑操作工具无法读取最小化的 Chrome 窗口。
+- 开发与打包步骤见 [README.tauri.md](README.tauri.md)。可运行 `npm run preview` 查看浏览器预览；预览不会启用托盘、置顶、通知或系统自启动。
+
+技术栈：Rust + Tauri v2 + 原生 HTML/CSS/JavaScript，不使用 Vue/React 等重型前端框架。
+
+主要功能：
+
+下班倒计时：9:00-17:30
+
+掼蛋倒计时：工作日从当前时间倒数至当天固定 11:45，与午休设置独立；到点归零，11:45 ≤ 当前时间 < 13:15 时显示“掼蛋时间到！”，13:15 起改为“今日已结束”，附文案“速速吃饭，准备掼蛋”。次日按新日期重新计算，非工作日显示休息状态。挂件与托盘悬停提示同时展示下班和掼蛋倒计时。
+
+午休：11:45-13:15，工时进度暂停，距离下班的倒计时继续。
+
+提醒外卖：工作日 10:35，通过 Windows 系统通知提醒，每天一次。
+
+本地ip显示：192.168.0.xxx（仅显示xxx）
+
+鼠标移动到托盘图标显示倒计时，精确到秒
+
+支持开机自启动，默认开启，并提供设置开关。
+
+## 新电脑开发准备（Windows）
+
+项目可放在任意有读写权限的目录，不要求沿用原电脑盘符或用户名。源码和图标资源均随仓库保存；`.cache/`、`artifacts/`、`src-tauri/target/` 和 `.alma-snapshots/` 是本机缓存、产物或快照，不需要从旧电脑复制。
+
+1. 安装 Git、Node.js 当前 LTS（含 npm）、Rust stable 的 MSVC 工具链，以及 Visual Studio 2022 Build Tools 的“使用 C++ 的桌面开发”工作负载和 Windows SDK；确认已安装 Microsoft Edge WebView2 Runtime。Rust 使用 edition 2024，请使用最新 stable。详细要求见 [桌面开发与打包](README.tauri.md#桌面开发与打包)。
+2. 克隆仓库或复制源码后，打开项目根目录终端。以下命令使用 PowerShell；若 npm 脚本被执行策略拦截，可直接使用 `npm.cmd`。
+3. 首次联网安装 Tauri 2 CLI，并按锁文件下载 Rust 依赖。项目目前没有 npm 依赖，无需 `npm install`；应保留并使用 `src-tauri/Cargo.lock`。
+
+```powershell
+node --version
+cargo --version
+rustup show active-toolchain
+cargo install tauri-cli --version "^2" --locked
+cargo fetch --manifest-path src-tauri/Cargo.toml --locked
+
+# 浏览器预览：http://127.0.0.1:4173，Ctrl+C 停止
+npm.cmd run preview
+```
+
+预览不提供托盘、系统通知、自启动和真实 IP。停止预览后，可在项目根目录执行：
+
+```powershell
+# 检查与桌面调试
+npm.cmd test
+cargo test --manifest-path src-tauri/Cargo.toml --locked
+cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+cargo tauri dev
+
+# 退出调试后，构建便携 EXE（不生成安装包）
+cargo tauri build --no-bundle -- --locked
+
+# 构建 NSIS 安装包，需要联网下载相应打包工具
+cargo tauri build -- --locked
+```
+
+便携程序位于 `src-tauri/target/release/countdown.exe`，安装包位于 `src-tauri/target/release/bundle/nsis/`。首次构建需要可用的 Cargo 和打包工具下载网络；不要在未缓存依赖的新电脑使用 `--offline`。若继承了 `CARGO_NET_OFFLINE=true`，可在当前 PowerShell 会话设置 `$env:CARGO_NET_OFFLINE = 'false'`；若设置 `CI`，请使用字符串 `true`，不要使用 `1`。无需复制旧电脑的代理、Cargo 缓存或个人工具路径。
+
+已有图标可直接构建。只有需要重新生成图标时，才需额外安装 Python 3（`python` 命令可用）及 Pillow：先执行 `python -m pip install Pillow`，再执行 `npm.cmd run icons`。脚本从根目录 `icon-1.png` 生成资源，详见 [应用图标](README.tauri.md#应用图标)。
+
+应用首次启动会按默认配置尝试启用开机自启动，可在设置中关闭。个人配置保存在当前用户的 `%LOCALAPPDATA%/com.administrator.countdown/`，由系统目录 API 定位，不依赖旧电脑用户名；迁移个人设置时自行备份、复制该目录的配置文件。`com.administrator.countdown` 是应用标识符，不是 Windows 账号路径，修改它会改变配置目录。项目运行不需要 API 密钥或 `.env`；真实 `.env`、私钥、签名证书和 Cargo 凭据应只保留在本机，示例文件仅可包含占位值。Git 作者身份由开发者使用自己的真实信息自行配置，不属于运行或暂存前置条件。
+
+# 任务目标：构建 Windows 桌面端
+
+请基于 **Rust + Tauri v2**（前端使用轻量原生 HTML/CSS/JavaScript，零重型框架依赖）构建一个常驻 Windows 桌面边缘的轻量、半透明毛玻璃悬浮小挂件。
+
+---
+
+## 1. 核心功能规范
+
+### 1.1 核心算法与 IPC 接口 (Rust 后端)
+
+- **配置持久化**：
+    - 数据模型包含：`start_time`（上班时间，默认 "09:00"）、`end_time`（下班时间，默认 "17:30"）、`lunch_start_time`（午休开始时间，默认 "11:45"）、`lunch_end_time`（午休结束时间，默认 "13:15"）、`autostart_enabled`（开机自启动，默认 `true`）、`always_on_top`（窗口置顶，默认 `false`）。
+    - 考勤规则使用 `CustomMonthlyLastSaturday`（周一至周五 + 当月最后一个周六，再扣除其中的法定节假日），用于倒计时、状态展示与外卖提醒。
+    - 每日有效工时为上下班间隔减去午休时长的派生值，默认 7 小时，用于计算工时进度，不作为独立可编辑配置。当前无需计算当月总出勤天数。
+    - 暂不支持夜班或跨日班次，配置必须满足 `start_time < lunch_start_time < lunch_end_time < end_time`，避免无效工时与除零。
+    - 数据通过 `serde_json` 存储于系统的本地应用数据目录（`AppLocalData`）。
+- **Tauri Commands (IPC)**：
+    - `get_config()`: 获取当前工作时间与自启动配置。
+    - `save_config(config: WorkConfig)`: 保存并持久化新配置。
+    - `get_countdown_stats()`: 根据当前本地时间，计算并返回：
+        - `progress_percent` (今日工时完成百分比 0.0 - 100.0)
+        - `remaining_seconds` (距离下班剩余秒数)
+        - `guandan_remaining_seconds` (距离当天 11:45 剩余秒数，到点后及非工作日为 0)
+        - `guandan_ready` (工作日 11:45 至 13:15 前为 true，控制掼蛋到点提示)
+        - `is_workday` (当天是否为工作日)
+        - `status` (`before_work` / `working` / `lunch_break` / `after_work` / `day_off`，用于前端状态展示)
+- **倒计时与时间边界**：
+    - 使用系统本地日期与时间，按当天日期判断是否为工作日。
+    - 上班前：工时进度为 0，倒计时为距离当天下班的实际秒数。
+    - 工作期间：仅累计已过去的有效工作时间，计算工时进度。
+    - 午休期间：工时进度暂停，距离下班的倒计时继续；午休结束后恢复累计。
+    - 下班后：工时进度为 100%，倒计时归零。
+    - 非工作日：工时进度为 0，倒计时返回 0，前端展示休息状态。
+    - 午夜后切换到新一天，跨月时按新日期重新判断月末周六规则；此处日期切换不代表支持夜班。
+
+### 1.2 系统级窗口行为与托盘集成 (Rust 后端)
+
+- **无边框透明窗口**：
+    - 窗口尺寸：宽 360px，高 480px，支持窗口无边框（`decorations: false`）、透明背景（`transparent: true`）、置顶开关（`alwaysOnTop`）。
+- **拖拽支持**：桌面版在卡片非交互区域按住鼠标左键可自由拖动，通过 `getCurrentWindow().startDragging()` 显式触发；按钮、设置表单与提示信息不触发拖动。浏览器预览不支持移动系统窗口。
+- **系统托盘 (System Tray)**：
+    - 图标常驻右下角任务栏通知区。
+    - 鼠标悬停显示距离下班的 `HH:MM:SS`，每秒更新；移入图标、保存时间设置后立即刷新，挂件隐藏后继续更新。休息日显示休息状态；工作日到配置的下班时间后移除下班整行，13:15 起移除掼蛋整行，两项都结束后只显示应用名。
+    - 左键单击：切换挂件的显示/隐藏（Show/Hide）。
+    - 右键菜单：包含「显示/隐藏窗口」、「窗口置顶切换」、「配置设置」、「退出应用」。
+- **老板键/快捷隐藏**：窗口聚焦时按 `Esc` 立即隐藏到托盘；设置弹窗打开时先关闭弹窗，再次按下隐藏挂件。不注册全局快捷键。
+- **系统通知与自启动**：
+    - 工作日 10:35 发送一次外卖提醒，使用 Windows 系统通知。
+    - 默认开启开机自启动，设置中可关闭；保存后同步实际系统自启动状态。
+
+### 1.3 前端界面设计 (Webview2 / HTML+CSS+JS)
+
+- **视觉风格**：
+    - 现代深色磨砂亚克力/毛玻璃（Glassmorphism）风格：`backdrop-filter: blur(16px)`，圆角卡片，细微高光描边，柔和环境阴影。
+    - 整体紧凑精致，适合作为桌面小组件常驻。
+- **倒计时展示**：
+    - 首页不显示上班/午休/下班时间表，具体时间在齿轮设置弹窗中查看和修改。
+    - 大字号清晰展示距离下班的 `HH : MM : SS`。
+    - 环形或条形进度条，流光渐变填充。
+    - 状态边界、恢复显示及配置变更后重新同步后端数据，确保倒计时和工时进度准确。
+- **实用小细节**：
+    - 点击齿轮按钮唤起弹窗，支持就地修改上下班时间、午休时间和开机自启动开关，通过校验后调用 `save_config`，立即重新计算并更新界面。
+
+---
+
+## 2. 推荐工程目录结构
+
+```
+
+├── src/
+│   ├── index.html        # 悬浮窗主体结构与设置弹窗
+│   ├── styles.css        # 毛玻璃、字体、流光动效样式
+│   └── main.js           # IPC 调用、倒计时更新、设置交互
+├── src-tauri/
+│   ├── Cargo.toml        # 依赖 chrono, serde, serde_json, tauri 等
+│   ├── tauri.conf.json   # 窗口透明度、尺寸、托盘与权限配置
+│   ├── icons/            # 托盘与应用图标
+│   └── src/
+│       ├── lib.rs        # 命令注册与生命周期管理
+│       ├── main.rs       # 程序入口与托盘事件监听
+│       ├── config.rs     # 配置文件 IO 与数据模型
+│       └── calculator.rs # 考勤判断、倒计时与工时进度计算
+```
+
+## 3. 产出要求
+
+1. 请按文件逐步输出完整的代码实现，重点包含 `Cargo.toml`、`tauri.conf.json`、`calculator.rs`、`lib.rs/main.rs` 以及前端 `index.html`、`styles.css`、`main.js`。
+2. 确保 Rust 代码处理好日期与月份切换、上班前、午休、下班后和非工作日的边界情况，避免除零或负数时间溢出。暂不支持夜班。
+3. 请附上本地调试（`cargo tauri dev`）和正式打包（`cargo tauri build`）的完整操作指令。
+
+### 考勤制度定制需求：平时双休，月底最后一周周六上班
+
+请在 Rust 后端和前端增加对我们公司特殊考勤制度的原生支持：
+
+- **基本规则**：周一至周五为正常工作日，周日正常休息。
+- **月末补班规则**：每个自然月的最后一周，周六需要正常上班（即月末单休，每月比标准双休多出 1 个工作日）。
+- **法定节假日规则**：法定节假日不计为工作日。先按星期与月末周六规则确定候选工作日，再排除命中法定节假日日历的日期；节假日优先于月末周六上班规则。
+- **调休范围**：本次确认的是扣除法定节假日；额外的国家调休补班暂未纳入规则。
+
+#### 1. 算法与逻辑要求 (src-tauri/src/calculator.rs)
+
+请在 Rust 中实现以下具体逻辑：
+
+1. **判断任意指定日期（如当天）是否为当月最后一周的周六**：
+    - 检查该日期是否为周六（`weekday == Weekday::Sat`）。
+    - 检查从该周六往后推 7 天（即 `date + Duration::days(7)`）是否已经跨入下个月（即属于不同月份）。如果是，则该周六即为当月最后一周的周六。
+2. **判断“今天是否为工作日”**：
+    - 首先检查是否为法定节假日：若是，直接返回 `false`。
+    - 周一至周五：`true`。
+    - 周六：仅当它是当月最后一周的周六时返回 `true`，其他周六返回 `false`。
+    - 周日：`false`。
+3. **非工作日状态反馈**：
+    - 若当天是非工作日（法定节假日、周日或非月末周六），`get_countdown_stats` 接口需返回 `is_workday: false`。
+    - 前端收到 `is_workday: false` 时，倒计时区域切换为“🎉 休息日 / 充能中”，工时进度为 0。
+
+请使用 `CustomMonthlyLastSaturday` 作为考勤规则，并完成 Rust 后端计算与前端状态联调。
+
+## 4. 首版实现约定
+
+- 节假日使用[国务院办公厅 2026 年放假安排](https://www.beijing.gov.cn/zhengce/zhengcefagui/202511/t20251104_4258873.html)中的放假区间，不加入额外调休补班。内置数据位于 `src/data/holidays.json`，可用 AppLocalData 下同结构的 `holidays.json` 覆盖，重启生效；更新年度时需补齐相应年份的全部放假区间。未覆盖年份显示“节假日日历待更新”，暂按星期与月末周六判断，并暂停外卖提醒。
+- `Esc` 采用仅窗口聚焦时立即隐藏；设置弹窗内先关闭弹窗。可后续按使用习惯调整。
+- IP 只考虑私有 IPv4，优先 `192.168.0.x`，再选其他 `192.168.x.x`，最后为其他私有网段；同网段优先非 VPN/虚拟网卡名称。界面仅展示末段，找不到时显示 `—`。这是确定性优先规则，不保证识别所有 VPN 或物理网卡。
+- 外卖提醒仅在工作日 10:35 这一分钟内触发，应用需要运行；晚于该分钟启动不补发。提醒尝试前持久化日期，重启不重复发送。Windows 通知需在安装版中做最终验证。

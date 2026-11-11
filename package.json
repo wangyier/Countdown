@@ -1,0 +1,13 @@
+{
+  "name": "countdown-widget",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "icons": "node scripts/generate-icons.mjs",
+    "preview": "node scripts/preview.mjs",
+    "test": "node tests/time.test.mjs",
+    "dev": "cargo tauri dev",
+    "build": "cargo tauri build"
+  }
+}

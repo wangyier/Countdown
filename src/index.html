@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="icon" type="image/png" href="assets/app-icon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>我要第一个溜</title>
+    <script type="module" src="/main.js" defer></script>
+  </head>
+
+  <body>
+    <svg class="icon-definitions" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+      <symbol id="icon-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3 2"/></symbol>
+      <symbol id="icon-pin" viewBox="0 0 24 24"><path d="m9 3 6 0-1 6 4 4v2H6v-2l4-4-1-6ZM12 15v6"/></symbol>
+      <symbol id="icon-settings" viewBox="0 0 24 24"><path d="m9 4 .8-2h4.4l.8 2 2 .9 2.1-.3 2.2 3.8-1.3 1.7v2.3l1.3 1.7-2.2 3.8-2.1-.3-2 .9-.8 2H9.8l-.8-2-2-.9-2.1.3-2.2-3.8L4 12.4v-2.3L2.7 8.4l2.2-3.8L7 4.9Z"/><circle cx="12" cy="11.3" r="3"/></symbol>
+      <symbol id="icon-hide" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+      <symbol id="icon-bell" viewBox="0 0 24 24"><path d="M5 16h14l-2-3V9a5 5 0 0 0-10 0v4l-2 3ZM10 20h4M12 2v2"/></symbol>
+      <symbol id="icon-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+    </svg>
+
+    <main class="widget" id="widget">
+      <header class="topbar">
+        <div class="brand"><span class="brand-mark"><img src="assets/app-icon.png" alt="" draggable="false" /></span><h1>我要第一个溜<span> / 下班倒计时</span></h1></div>
+        <div class="window-actions">
+          <button class="icon-button" id="pin-button" aria-label="窗口置顶" aria-pressed="false" title="窗口置顶"><svg><use href="#icon-pin"/></svg></button>
+          <button class="icon-button" id="settings-button" aria-label="打开设置" title="设置"><svg><use href="#icon-settings"/></svg></button>
+          <button class="icon-button" id="hide-button" aria-label="隐藏到托盘" title="隐藏到托盘 · Esc"><svg><use href="#icon-hide"/></svg></button>
+        </div>
+      </header>
+
+      <section class="day-heading"><span id="date-label">正在读取日期</span><span class="status" id="status" role="status"><i></i><span id="status-label">连接中</span></span></section>
+
+      <section class="countdown-section" aria-label="下班倒计时">
+        <p class="eyebrow" id="countdown-label">距离下班还有</p>
+        <div class="digits" id="countdown" role="timer" aria-label="正在加载"><span id="hours">--</span><b>:</b><span id="minutes">--</span><b>:</b><span id="seconds">--</span></div>
+        <div class="digit-labels" aria-hidden="true"><span>小时</span><span>分钟</span><span>秒</span></div>
+        <p class="motto" id="motto">把时间留一点给生活。</p>
+      </section>
+
+      <section class="guandan-card" id="guandan-card" aria-label="掼蛋倒计时">
+        <div><h2>掼蛋倒计时 <span aria-hidden="true">♠</span></h2><p>速速吃饭，准备掼蛋</p></div>
+        <div class="guandan-values"><strong id="guandan-countdown" role="timer" aria-label="正在加载">--:--:--</strong><span id="guandan-status">目标 11:45</span></div>
+      </section>
+
+      <section class="progress-section" aria-label="今日工时进度">
+        <div class="section-label"><span>今日进度</span><span id="progress-value">--<small>%</small></span></div>
+        <div class="progress-track" id="progress" role="progressbar" aria-label="今日工时完成比例" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="progress-fill"></div></div>
+      </section>
+
+      <div class="reminder"><span class="reminder-icon"><svg><use href="#icon-bell"/></svg></span><span>好好吃饭，才有力气下班</span><span class="reminder-time" title="工作日 10:35 提醒点外卖">10:35</span></div>
+      <footer><span id="ip-label" title="仅显示本地私有 IPv4 地址末段">IP · —</span><span id="footer-label" data-no-drag>准时收工，生活开场 <span class="footer-star">✳</span></span></footer>
+      <p id="notice" class="notice" role="status" data-no-drag hidden></p>
+    </main>
+
+    <dialog id="settings-dialog" aria-labelledby="settings-title">
+      <form id="settings-form">
+        <div class="dialog-heading"><div><p class="eyebrow">MAKE TIME FOR LIFE</p><h2 id="settings-title">按你的节奏来</h2></div><button type="button" class="icon-button" id="close-settings" aria-label="关闭设置"><svg><use href="#icon-close"/></svg></button></div>
+        <p class="dialog-description">设置好时间，剩下的交给我。</p>
+        <div class="time-grid">
+          <label>上班时间<input type="time" name="start_time" required /></label>
+          <label>下班时间<input type="time" name="end_time" required /></label>
+          <label>午休开始<input type="time" name="lunch_start_time" required /></label>
+          <label>午休结束<input type="time" name="lunch_end_time" required /></label>
+        </div>
+        <label class="switch-row"><span>开机自动启动<small>登录电脑后，自动开始倒计时</small></span><input type="checkbox" name="autostart_enabled" role="switch" /></label>
+        <label class="switch-row"><span>窗口始终置顶<small>在其他窗口上方显示挂件</small></span><input type="checkbox" name="always_on_top" role="switch" /></label>
+        <p class="calendar-note" id="calendar-note">双休 · 每月最后一个周六上班 · 节假日休息</p>
+        <p class="form-error" id="settings-error" role="alert" hidden></p>
+        <div class="dialog-actions"><button type="button" class="secondary-button" id="cancel-settings">取消</button><button type="submit" class="primary-button" id="save-button">保存设置 <span aria-hidden="true">↗</span></button></div>
+      </form>
+    </dialog>
+  </body>
+</html>
