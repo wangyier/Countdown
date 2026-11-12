@@ -1,12 +1,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import { DEFAULT_CONFIG, validateSchedule, formatCountdown } from "../src/time.js";
 import { previewStats } from "../src/preview.js";
 import { attachWindowDrag } from "../src/drag.js";
 
-const calendar = JSON.parse(await readFile(new URL("../src/data/holidays.json", import.meta.url), "utf8"));
-const stats = (date, config = DEFAULT_CONFIG) => previewStats(config, calendar, new Date(date.replace(" ", "T")));
+test("reminder settings validate separately from working hours", () => {
+  assert.equal(DEFAULT_CONFIG.reminder_enabled, true);
+  assert.equal(DEFAULT_CONFIG.reminder_time, "10:35");
+  for (const reminder_time of ["00:00", "08:00", "23:59"]) {
+    assert.doesNotThrow(() => validateSchedule({ ...DEFAULT_CONFIG, reminder_time }));
+  }
+  for (const reminder_time of ["", "9:00", "24:00", "10:60"]) {
+    assert.throws(() => validateSchedule({ ...DEFAULT_CONFIG, reminder_time }));
+  }
+});
+
+const stats = (date, config = DEFAULT_CONFIG) => previewStats(config, new Date(date.replace(" ", "T")));
 
 test("native dragging accepts left mouse presses and preserves interactive controls", () => {
   let handler;
@@ -75,34 +84,34 @@ test("guandan counts down to 11:45, stays at zero after arrival and resets next 
     assert.equal(stats(`2026-11-11 ${time}`).guandan_remaining_seconds, remaining, time);
   }
   assert.equal(stats("2026-11-12 00:00:00").guandan_remaining_seconds, 42300);
-  assert.equal(stats("2026-11-29 09:00:00").guandan_remaining_seconds, 0);
-  assert.equal(stats("2026-11-11 11:44:59", { ...DEFAULT_CONFIG, lunch_start_time: "12:00" }).guandan_remaining_seconds, 1);
+  assert.equal(stats("2026-11-29 09:00:00").guandan_remaining_seconds, 9900);
+  assert.equal(stats("2026-11-11 11:44:59", { ...DEFAULT_CONFIG, lunch_start_time: "12:00" }).guandan_remaining_seconds, 901);
 });
 
 test("guandan arrival message is active from 11:45 up to 13:15 exclusively", () => {
   for (const [time, ready] of [["11:44:59", false], ["11:45:00", true], ["13:14:59", true], ["13:15:00", false], ["13:15:01", false], ["23:59:59", false]]) {
     assert.equal(stats(`2026-11-11 ${time}`).guandan_ready, ready, time);
   }
-  assert.equal(stats("2026-11-29 12:00:00").guandan_ready, false);
+  assert.equal(stats("2026-11-29 12:00:00").guandan_ready, true);
   assert.equal(stats("2026-11-12 00:00:00").guandan_ready, false);
-  assert.equal(stats("2026-11-11 13:15:00", { ...DEFAULT_CONFIG, lunch_end_time: "14:00" }).guandan_ready, false);
+  assert.equal(stats("2026-11-11 13:15:00", { ...DEFAULT_CONFIG, lunch_end_time: "14:00" }).guandan_ready, true);
 });
 
-test("last Saturday works; other weekends and holidays rest", () => {
-  assert.equal(stats("2026-11-28 12:00:00").is_workday, true);
+test("weekends and holidays use the same daily schedule", () => {
+  assert.equal(stats("2026-11-28 12:00:00").status, "lunch_break");
   for (const date of ["2026-11-21", "2026-11-29", "2026-09-26", "2026-10-01", "2026-02-14", "2026-01-04"]) {
     const result = stats(`${date} 12:00:00`);
-    assert.equal(result.status, "day_off", date);
-    assert.equal(result.remaining_seconds, 0, date);
-    assert.equal(result.progress_percent, 0, date);
+    assert.equal(result.status, "lunch_break", date);
+    assert.equal(result.remaining_seconds, 19800, date);
+    assert.equal(result.progress_percent, 9900 / 25200 * 100, date);
   }
 });
 
-test("midnight resets, year changes are flagged and leap days work", () => {
+test("midnight and year changes reset without a calendar; leap days work", () => {
   assert.equal(stats("2026-11-30 23:59:59").progress_percent, 100);
   assert.equal(stats("2026-12-01 00:00:00").progress_percent, 0);
-  assert.equal(stats("2026-12-26 09:00:00").is_workday, true);
-  assert.equal(stats("2027-01-01 09:00:00").calendar_known, false);
+  assert.equal(stats("2026-12-26 09:00:00").status, "working");
+  assert.equal(stats("2027-01-01 09:00:00").status, "working");
   assert.equal(stats("2028-02-29 09:00:00").status, "working");
 });
 
@@ -119,7 +128,7 @@ test("all seconds of a workday remain bounded; progress only grows during work",
   let previous;
   for (let second = 0; second < 86400; second++) {
     const now = new Date(2026, 10, 11, 0, 0, second);
-    const current = previewStats(DEFAULT_CONFIG, calendar, now);
+    const current = previewStats(DEFAULT_CONFIG, now);
     assert.ok(current.progress_percent >= 0 && current.progress_percent <= 100);
     assert.ok(current.remaining_seconds >= 0);
     if (previous) {

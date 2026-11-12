@@ -11,6 +11,8 @@ pub struct WorkConfig {
     pub lunch_end_time: String,
     pub autostart_enabled: bool,
     pub always_on_top: bool,
+    pub reminder_enabled: bool,
+    pub reminder_time: String,
 }
 
 impl Default for WorkConfig {
@@ -22,12 +24,29 @@ impl Default for WorkConfig {
             lunch_end_time: "13:15".into(),
             autostart_enabled: true,
             always_on_top: false,
+            reminder_enabled: true,
+            reminder_time: "10:35".into(),
         }
     }
 }
 
 impl WorkConfig {
+    pub fn reminder_time(&self) -> Result<NaiveTime, String> {
+        let value = &self.reminder_time;
+        if value.len() != 5
+            || value.as_bytes()[2] != b':'
+            || ![0, 1, 3, 4]
+                .into_iter()
+                .all(|i| value.as_bytes()[i].is_ascii_digit())
+        {
+            return Err("外卖提醒时间请使用 HH:MM 格式".into());
+        }
+        NaiveTime::parse_from_str(value, "%H:%M")
+            .map_err(|_| "请输入有效的外卖提醒时间（00:00—23:59）".into())
+    }
+
     pub fn times(&self) -> Result<[NaiveTime; 4], String> {
+        self.reminder_time()?;
         let parse = |value: &str| {
             if value.len() != 5
                 || value.as_bytes()[2] != b':'
@@ -86,6 +105,28 @@ pub fn write_json(path: &Path, value: &impl Serialize) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn old_configs_receive_reminder_defaults_and_new_settings_roundtrip() {
+        let old: WorkConfig = serde_json::from_str(r#"{"start_time":"08:30"}"#).unwrap();
+        assert!(old.reminder_enabled);
+        assert_eq!(old.reminder_time, "10:35");
+        let changed = WorkConfig {
+            reminder_enabled: false,
+            reminder_time: "12:20".into(),
+            ..old
+        };
+        let restored: WorkConfig =
+            serde_json::from_str(&serde_json::to_string(&changed).unwrap()).unwrap();
+        assert_eq!(changed, restored);
+        for value in ["", "9:00", "24:00", "10:60", "10:35:00"] {
+            let config = WorkConfig {
+                reminder_time: value.into(),
+                ..WorkConfig::default()
+            };
+            assert!(config.times().is_err(), "{value}");
+        }
+    }
 
     #[test]
     fn rejects_invalid_and_cross_day_schedules() {

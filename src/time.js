@@ -5,6 +5,8 @@ export const DEFAULT_CONFIG = Object.freeze({
   lunch_end_time: "13:15",
   autostart_enabled: true,
   always_on_top: false,
+  reminder_enabled: true,
+  reminder_time: "10:35",
 });
 
 export function secondsOfDay(value) {
@@ -16,6 +18,7 @@ export function secondsOfDay(value) {
 }
 
 export function validateSchedule(config) {
+  secondsOfDay(config.reminder_time ?? DEFAULT_CONFIG.reminder_time);
   const values = [config.start_time, config.lunch_start_time, config.lunch_end_time, config.end_time].map(secondsOfDay);
   if (!values.every((value, index) => index === 0 || values[index - 1] < value)) {
     throw new Error("时间顺序须为：上班 < 午休开始 < 午休结束 < 下班");
@@ -34,5 +37,4 @@ export const STATUS_DETAILS = Object.freeze({
   working: { label: "工作中", heading: "距离下班还有", motto: "认真工作，也别忘了准时生活。" },
   lunch_break: { label: "午休中", heading: "距离下班还有", motto: "好好吃饭，午休不必争分夺秒。" },
   after_work: { label: "已下班", heading: "今日工作已结束", motto: "今天辛苦了，接下来是你的时间。" },
-  day_off: { label: "休息日", heading: "休息日 / 充能中", motto: "今天的待办：好好享受生活。" },
 });

@@ -6,10 +6,10 @@ const $ = (selector) => document.querySelector(selector);
 const desktop = Boolean(window.__TAURI__?.core?.invoke);
 const dialog = $("#settings-dialog");
 const form = $("#settings-form");
-const timeKeys = ["start_time", "end_time", "lunch_start_time", "lunch_end_time"];
+const timeKeys = ["start_time", "end_time", "lunch_start_time", "lunch_end_time", "reminder_time"];
+const toggleKeys = ["autostart_enabled", "always_on_top", "reminder_enabled"];
 let invoke;
 let config;
-let stats;
 let info;
 let syncing = false;
 let pendingSync = false;
@@ -49,10 +49,11 @@ function renderConfig(value) {
   pin.setAttribute("aria-pressed", String(value.always_on_top));
   pin.setAttribute("aria-label", label);
   pin.title = label;
+  $("#reminder-time").textContent = value.reminder_enabled ? value.reminder_time : "已关闭";
+  $("#reminder-time").title = value.reminder_enabled ? `每天 ${value.reminder_time} 提醒点外卖` : "外卖提醒已关闭";
 }
 
 function renderStats(value) {
-  stats = value;
   const details = STATUS_DETAILS[value.status];
   if (!details) throw new Error("无法识别工作状态，请重新打开应用");
   $("#widget").dataset.status = value.status;
@@ -67,9 +68,8 @@ function renderStats(value) {
   $("#guandan-countdown").setAttribute("aria-label", `${guandanParts[0]}小时${guandanParts[1]}分钟${guandanParts[2]}秒`);
   const guandanReached = value.guandan_ready;
   $("#guandan-card").dataset.reached = String(guandanReached);
-  $("#guandan-status").textContent = !value.is_workday ? "休息日 / 充能中"
-    : guandanReached ? "掼蛋时间到！"
-    : value.guandan_remaining_seconds === 0 ? "今日已结束" : "目标 11:45";
+  $("#guandan-status").textContent = guandanReached ? "掼蛋时间到！"
+    : value.guandan_remaining_seconds === 0 ? "今日已结束" : `目标 ${value.schedule.lunch_start_time}`;
   const progress = Math.min(100, Math.max(0, value.progress_percent));
   $("#progress-value").replaceChildren(document.createTextNode(progress.toFixed(1)), Object.assign(document.createElement("small"), { textContent: "%" }));
   $("#progress-fill").style.width = `${progress}%`;
@@ -82,16 +82,13 @@ function renderStats(value) {
 
 function renderInfo() {
   if (info) $("#ip-label").textContent = `IP · ${info.local_ip_suffix ?? "—"}`;
-  const missingCalendar = stats && !stats.calendar_known;
   const warnings = info?.warnings || [];
   const footer = $("#footer-label");
-  footer.textContent = missingCalendar ? "节假日日历待更新 ⓘ"
-    : warnings.length ? "设置状态需要检查 ⓘ"
+  footer.textContent = warnings.length ? "设置状态需要检查 ⓘ"
     : desktop ? "准时收工，生活开场 ✳" : "浏览器预览 · 系统功能未启用";
-  footer.title = missingCalendar ? "当前年份未配置节假日，暂按星期与月末周六判断；外卖提醒暂停。"
-    : warnings.join("\n") || (desktop ? "Esc 隐藏 · 托盘点击恢复" : "预览设置仅保存在浏览器，托盘、置顶、通知和自启动请使用桌面版。");
-  footer.tabIndex = missingCalendar || warnings.length ? 0 : -1;
-  $("#calendar-note").textContent = `双休 · 每月最后一个周六上班 · 节假日休息。${info ? `日历：${info.calendar_years.join("、")} 年。` : ""}${desktop ? "" : "预览模式不修改系统设置。"}`;
+  footer.title = warnings.join("\n") || (desktop ? "Esc 隐藏 · 托盘点击恢复" : "预览设置仅保存在浏览器，托盘、置顶、通知和自启动请使用桌面版。");
+  footer.tabIndex = warnings.length ? 0 : -1;
+  $("#schedule-note").textContent = `每天按设置的上下班和午休时间计算。${desktop ? "" : "预览模式不修改系统设置。"}`;
 }
 
 async function sync() {
@@ -125,7 +122,8 @@ async function openSettings() {
     if (dialog.open) return;
     renderConfig(current);
     for (const key of timeKeys) form.elements.namedItem(key).value = current[key];
-    for (const key of ["autostart_enabled", "always_on_top"]) form.elements.namedItem(key).checked = current[key];
+    for (const key of toggleKeys) form.elements.namedItem(key).checked = current[key];
+    updateReminderInput();
     $("#settings-error").hidden = true;
     dialog.showModal();
   } catch (error) { report(error); }
@@ -133,6 +131,10 @@ async function openSettings() {
 }
 
 function closeSettings() { if (!saving) dialog.close(); }
+function updateReminderInput() {
+  form.elements.namedItem("reminder_time").disabled = saving || !form.elements.namedItem("reminder_enabled").checked;
+}
+form.elements.namedItem("reminder_enabled").addEventListener("change", updateReminderInput);
 $("#settings-button").addEventListener("click", openSettings);
 $("#close-settings").addEventListener("click", closeSettings);
 $("#cancel-settings").addEventListener("click", closeSettings);
@@ -143,7 +145,7 @@ form.addEventListener("submit", async (event) => {
   if (saving) return;
   const next = { ...config };
   for (const key of timeKeys) next[key] = form.elements.namedItem(key).value;
-  for (const key of ["autostart_enabled", "always_on_top"]) next[key] = form.elements.namedItem(key).checked;
+  for (const key of toggleKeys) next[key] = form.elements.namedItem(key).checked;
   const errorLabel = $("#settings-error");
   errorLabel.hidden = true;
   try {
@@ -162,6 +164,7 @@ form.addEventListener("submit", async (event) => {
   } finally {
     saving = false;
     for (const element of form.elements) element.disabled = false;
+    updateReminderInput();
     $("#save-button").textContent = "保存设置 ↗";
   }
 });
@@ -186,7 +189,7 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !dialog.open) { event.preventDefault(); void hide(); }
 });
 $("#footer-label").addEventListener("click", () => {
-  if ((stats && !stats.calendar_known) || info?.warnings?.length) notify($("#footer-label").title);
+  if (info?.warnings?.length) notify($("#footer-label").title);
 });
 $("#footer-label").addEventListener("keydown", (event) => {
   if (event.key === "Enter" || event.key === " ") { event.preventDefault(); $("#footer-label").click(); }

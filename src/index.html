@@ -41,7 +41,7 @@
 
       <section class="guandan-card" id="guandan-card" aria-label="掼蛋倒计时">
         <div><h2>掼蛋倒计时 <span aria-hidden="true">♠</span></h2><p>速速吃饭，准备掼蛋</p></div>
-        <div class="guandan-values"><strong id="guandan-countdown" role="timer" aria-label="正在加载">--:--:--</strong><span id="guandan-status">目标 11:45</span></div>
+        <div class="guandan-values"><strong id="guandan-countdown" role="timer" aria-label="正在加载">--:--:--</strong><span id="guandan-status">正在同步</span></div>
       </section>
 
       <section class="progress-section" aria-label="今日工时进度">
@@ -49,7 +49,7 @@
         <div class="progress-track" id="progress" role="progressbar" aria-label="今日工时完成比例" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="progress-fill"></div></div>
       </section>
 
-      <div class="reminder"><span class="reminder-icon"><svg><use href="#icon-bell"/></svg></span><span>好好吃饭，才有力气下班</span><span class="reminder-time" title="工作日 10:35 提醒点外卖">10:35</span></div>
+      <div class="reminder"><span class="reminder-icon"><svg><use href="#icon-bell"/></svg></span><span>好好吃饭，才有力气下班</span><span class="reminder-time" id="reminder-time">正在同步</span></div>
       <footer><span id="ip-label" title="仅显示本地私有 IPv4 地址末段">IP · —</span><span id="footer-label" data-no-drag>准时收工，生活开场 <span class="footer-star">✳</span></span></footer>
       <p id="notice" class="notice" role="status" data-no-drag hidden></p>
     </main>
@@ -64,9 +64,11 @@
           <label>午休开始<input type="time" name="lunch_start_time" required /></label>
           <label>午休结束<input type="time" name="lunch_end_time" required /></label>
         </div>
+        <label class="switch-row"><span>外卖提醒<small>每天最多一次，错过不补发</small></span><input type="checkbox" name="reminder_enabled" role="switch" /></label>
+        <label class="switch-row" for="reminder-time-input"><span>提醒时间</span><input id="reminder-time-input" type="time" name="reminder_time" required /></label>
         <label class="switch-row"><span>开机自动启动<small>登录电脑后，自动开始倒计时</small></span><input type="checkbox" name="autostart_enabled" role="switch" /></label>
         <label class="switch-row"><span>窗口始终置顶<small>在其他窗口上方显示挂件</small></span><input type="checkbox" name="always_on_top" role="switch" /></label>
-        <p class="calendar-note" id="calendar-note">双休 · 每月最后一个周六上班 · 节假日休息</p>
+        <p class="calendar-note" id="schedule-note">每天按设置的上下班和午休时间计算</p>
         <p class="form-error" id="settings-error" role="alert" hidden></p>
         <div class="dialog-actions"><button type="button" class="secondary-button" id="cancel-settings">取消</button><button type="submit" class="primary-button" id="save-button">保存设置 <span aria-hidden="true">↗</span></button></div>
       </form>

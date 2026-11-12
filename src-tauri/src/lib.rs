@@ -3,7 +3,7 @@ mod clock;
 mod config;
 mod desktop;
 
-use calculator::{CountdownStats, HolidayCalendar, calculate};
+use calculator::{CountdownStats, calculate};
 use chrono::Local;
 use config::WorkConfig;
 use serde::Serialize;
@@ -18,7 +18,6 @@ struct Runtime {
 
 struct AppState {
     runtime: Mutex<Runtime>,
-    calendar: HolidayCalendar,
     directory: PathBuf,
 }
 
@@ -26,7 +25,6 @@ struct AppState {
 struct AppInfo {
     local_ip_suffix: Option<String>,
     warnings: Vec<String>,
-    calendar_years: Vec<i32>,
 }
 
 #[tauri::command]
@@ -102,7 +100,7 @@ fn get_countdown_stats(state: tauri::State<'_, AppState>) -> Result<CountdownSta
         .map_err(|e| e.to_string())?
         .config
         .clone();
-    calculate(&config, Local::now().naive_local(), &state.calendar)
+    calculate(&config, Local::now().naive_local())
 }
 
 #[tauri::command]
@@ -142,7 +140,6 @@ fn get_app_info(state: tauri::State<'_, AppState>) -> Result<AppInfo, String> {
             .map_err(|e| e.to_string())?
             .warnings
             .clone(),
-        calendar_years: state.calendar.years.clone(),
     })
 }
 
@@ -183,22 +180,6 @@ pub fn run() {
                     WorkConfig::default()
                 }
             };
-            let calendar = match std::fs::read_to_string(directory.join("holidays.json")) {
-                Ok(json) => match HolidayCalendar::parse(&json) {
-                    Ok(calendar) => calendar,
-                    Err(error) => {
-                        warnings.push(format!("自定义节假日日历无效，暂用内置日历：{error}"));
-                        HolidayCalendar::bundled()
-                    }
-                },
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                    HolidayCalendar::bundled()
-                }
-                Err(error) => {
-                    warnings.push(format!("无法读取自定义日历，暂用内置日历：{error}"));
-                    HolidayCalendar::bundled()
-                }
-            };
             if let Err(error) = autostart(app.handle(), config.autostart_enabled) {
                 warnings.push(error);
             }
@@ -216,7 +197,6 @@ pub fn run() {
             }
             app.manage(AppState {
                 runtime: Mutex::new(Runtime { config, warnings }),
-                calendar,
                 directory,
             });
             desktop::setup_tray(app)?;

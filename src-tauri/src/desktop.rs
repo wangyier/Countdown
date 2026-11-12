@@ -1,5 +1,5 @@
 use crate::{AppState, calculator, config, toggle_pin};
-use chrono::{Datelike, Local, NaiveDate, NaiveDateTime, Timelike};
+use chrono::{Local, NaiveDate, NaiveDateTime, Timelike};
 use std::{collections::BTreeSet, fs, time::Duration};
 use tauri::{
     Emitter, Manager,
@@ -75,13 +75,13 @@ pub fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
 
 fn reminder_due(
     now: NaiveDateTime,
-    calendar: &calculator::HolidayCalendar,
     sent: &BTreeSet<NaiveDate>,
+    config: &config::WorkConfig,
 ) -> bool {
-    now.hour() == 10
-        && now.minute() == 35
-        && calendar.years.contains(&now.year())
-        && calculator::is_workday(now.date(), calendar)
+    config.reminder_enabled
+        && config
+            .reminder_time()
+            .is_ok_and(|time| now.hour() == time.hour() && now.minute() == time.minute())
         && !sent.contains(&now.date())
 }
 
@@ -108,7 +108,13 @@ pub fn start_clock(app: tauri::AppHandle) {
         loop {
             update_tooltip(&app, &state);
             let now = Local::now().naive_local();
-            if reminders_enabled && reminder_due(now, &state.calendar, &sent) {
+            let due = reminders_enabled
+                && state
+                    .runtime
+                    .lock()
+                    .map(|runtime| reminder_due(now, &sent, &runtime.config))
+                    .unwrap_or(false);
+            if due {
                 // Persist before dispatch so a restart cannot send twice.
                 sent.insert(now.date());
                 match config::write_json(&marker_path, &sent) {
@@ -140,9 +146,7 @@ pub(super) fn update_tooltip(app: &tauri::AppHandle, state: &AppState) {
     let Ok(runtime) = state.runtime.lock() else {
         return;
     };
-    let Ok(stats) =
-        calculator::calculate(&runtime.config, Local::now().naive_local(), &state.calendar)
-    else {
+    let Ok(stats) = calculator::calculate(&runtime.config, Local::now().naive_local()) else {
         return;
     };
     drop(runtime);
@@ -156,7 +160,6 @@ fn tooltip_text(stats: &calculator::CountdownStats) -> String {
     let mut lines = vec!["我要第一个溜".to_string()];
     let seconds = stats.remaining_seconds;
     let text = match stats.status {
-        "day_off" => "下班倒计时 · 休息日 / 充能中".into(),
         "after_work" => String::new(),
         _ => format!(
             "距离下班 {:02}:{:02}:{:02}{}",
@@ -174,9 +177,7 @@ fn tooltip_text(stats: &calculator::CountdownStats) -> String {
         lines.push(text);
     }
     let game = stats.guandan_remaining_seconds;
-    let guandan = if !stats.is_workday {
-        "掼蛋倒计时 · 休息日".into()
-    } else if stats.guandan_ready {
+    let guandan = if stats.guandan_ready {
         "掼蛋时间到！".into()
     } else if game == 0 {
         String::new()
@@ -202,7 +203,6 @@ mod tests {
         let stats = calculator::calculate(
             config,
             NaiveDateTime::parse_from_str(timestamp, "%Y-%m-%d %H:%M:%S").unwrap(),
-            &calculator::HolidayCalendar::bundled(),
         )
         .unwrap();
         tooltip_text(&stats)
@@ -242,7 +242,7 @@ mod tests {
     }
 
     #[test]
-    fn tooltip_uses_configured_end_and_fixed_guandan_cutoff() {
+    fn tooltip_uses_configured_end_and_lunch_interval() {
         let config = config::WorkConfig {
             lunch_start_time: "12:00".into(),
             lunch_end_time: "14:00".into(),
@@ -254,7 +254,11 @@ mod tests {
                 "13:14:59",
                 "我要第一个溜\n距离下班 04:45:01 · 午休中\n掼蛋时间到！",
             ),
-            ("13:15:00", "我要第一个溜\n距离下班 04:45:00 · 午休中"),
+            (
+                "13:15:00",
+                "我要第一个溜\n距离下班 04:45:00 · 午休中\n掼蛋时间到！",
+            ),
+            ("14:00:00", "我要第一个溜\n距离下班 04:00:00"),
             ("17:30:00", "我要第一个溜\n距离下班 00:30:00"),
             ("17:59:59", "我要第一个溜\n距离下班 00:00:01"),
             ("18:00:00", "我要第一个溜"),
@@ -274,23 +278,20 @@ mod tests {
         };
         assert_eq!(
             tooltip(&early, "2026-11-11 11:59:59"),
-            "我要第一个溜\n距离下班 00:00:01\n掼蛋时间到！"
+            "我要第一个溜\n距离下班 00:00:01"
         );
-        assert_eq!(
-            tooltip(&early, "2026-11-11 12:00:00"),
-            "我要第一个溜\n掼蛋时间到！"
-        );
+        assert_eq!(tooltip(&early, "2026-11-11 12:00:00"), "我要第一个溜");
         assert_eq!(tooltip(&early, "2026-11-11 13:15:00"), "我要第一个溜");
     }
 
     #[test]
-    fn tooltip_preserves_rest_days_holidays_and_last_saturday() {
+    fn tooltip_uses_same_schedule_on_every_date() {
         let config = config::WorkConfig::default();
         for date in ["2026-11-21", "2026-11-29", "2026-10-01"] {
             for time in ["13:14:59", "13:15:00", "17:29:59", "17:30:00"] {
                 assert_eq!(
                     tooltip(&config, &format!("{date} {time}")),
-                    "我要第一个溜\n下班倒计时 · 休息日 / 充能中\n掼蛋倒计时 · 休息日"
+                    tooltip(&config, &format!("2026-11-11 {time}"))
                 );
             }
         }
@@ -302,23 +303,55 @@ mod tests {
     }
 
     #[test]
-    fn reminder_target_minute_workday_and_deduplication() {
-        let calendar = calculator::HolidayCalendar::bundled();
+    fn reminder_switch_custom_time_and_same_day_changes() {
+        let mut config = config::WorkConfig {
+            reminder_time: "12:20".into(),
+            ..config::WorkConfig::default()
+        };
+        let mut sent = BTreeSet::new();
+        let at = |time: &str| {
+            NaiveDateTime::parse_from_str(&format!("2026-11-12 {time}"), "%Y-%m-%d %H:%M:%S")
+                .unwrap()
+        };
+        assert!(!reminder_due(at("10:35:00"), &sent, &config));
+        assert!(!reminder_due(at("12:19:59"), &sent, &config));
+        assert!(reminder_due(at("12:20:00"), &sent, &config));
+        assert!(reminder_due(at("12:20:59"), &sent, &config));
+        assert!(!reminder_due(at("12:21:00"), &sent, &config));
+        config.reminder_enabled = false;
+        assert!(!reminder_due(at("12:20:00"), &sent, &config));
+        config.reminder_enabled = true;
+        sent.insert(at("12:20:00").date());
+        config.reminder_time = "12:25".into();
+        assert!(!reminder_due(at("12:25:00"), &sent, &config));
+        let tomorrow = at("12:25:00") + chrono::Duration::days(1);
+        assert!(reminder_due(tomorrow, &sent, &config));
+    }
+
+    #[test]
+    fn reminder_target_minute_and_daily_deduplication() {
+        let config = config::WorkConfig::default();
         let mut sent = BTreeSet::new();
         let now =
             NaiveDateTime::parse_from_str("2026-11-11 10:35:59", "%Y-%m-%d %H:%M:%S").unwrap();
-        assert!(reminder_due(now, &calendar, &sent));
+        assert!(reminder_due(now, &sent, &config));
         assert!(!reminder_due(
             now + chrono::Duration::seconds(1),
-            &calendar,
-            &sent
+            &sent,
+            &config
         ));
         sent.insert(now.date());
-        assert!(!reminder_due(now, &calendar, &sent));
+        assert!(!reminder_due(now, &sent, &config));
         let holiday = NaiveDate::from_ymd_opt(2026, 10, 1)
             .unwrap()
             .and_hms_opt(10, 35, 0)
             .unwrap();
-        assert!(!reminder_due(holiday, &calendar, &sent));
+        assert!(reminder_due(holiday, &sent, &config));
+        for date in ["2026-11-29", "2027-01-01"] {
+            let now =
+                NaiveDateTime::parse_from_str(&format!("{date} 10:35:00"), "%Y-%m-%d %H:%M:%S")
+                    .unwrap();
+            assert!(reminder_due(now, &sent, &config));
+        }
     }
 }

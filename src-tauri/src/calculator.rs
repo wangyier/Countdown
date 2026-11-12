@@ -1,54 +1,6 @@
 use crate::config::WorkConfig;
-use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, Timelike, Weekday};
-use serde::{Deserialize, Serialize};
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct HolidayCalendar {
-    pub years: Vec<i32>,
-    pub ranges: Vec<[NaiveDate; 2]>,
-}
-
-impl HolidayCalendar {
-    pub fn bundled() -> Self {
-        Self::parse(include_str!("../../src/data/holidays.json"))
-            .expect("bundled holiday calendar is valid")
-    }
-
-    pub fn parse(json: &str) -> Result<Self, String> {
-        let calendar: Self = serde_json::from_str(json).map_err(|e| e.to_string())?;
-        for [start, end] in &calendar.ranges {
-            if start > end || start.year() != end.year() || !calendar.years.contains(&start.year())
-            {
-                return Err("节假日区间须在已声明的同一年内，且开始不晚于结束".into());
-            }
-        }
-        Ok(calendar)
-    }
-
-    pub fn contains(&self, date: NaiveDate) -> bool {
-        self.ranges
-            .iter()
-            .any(|[start, end]| *start <= date && date <= *end)
-    }
-}
-
-pub fn is_last_saturday(date: NaiveDate) -> bool {
-    date.weekday() == Weekday::Sat
-        && date
-            .checked_add_signed(Duration::days(7))
-            .is_none_or(|next| next.month() != date.month() || next.year() != date.year())
-}
-
-pub fn is_workday(date: NaiveDate, calendar: &HolidayCalendar) -> bool {
-    if calendar.contains(date) {
-        return false;
-    }
-    match date.weekday() {
-        Weekday::Sun => false,
-        Weekday::Sat => is_last_saturday(date),
-        _ => true,
-    }
-}
+use chrono::{NaiveDateTime, Timelike};
+use serde::Serialize;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct CountdownStats {
@@ -56,37 +8,24 @@ pub struct CountdownStats {
     pub remaining_seconds: i64,
     pub guandan_remaining_seconds: i64,
     pub guandan_ready: bool,
-    pub is_workday: bool,
     pub status: &'static str,
     pub date: String,
-    pub calendar_known: bool,
     pub schedule: WorkConfig,
 }
 
-pub fn calculate(
-    config: &WorkConfig,
-    now: NaiveDateTime,
-    calendar: &HolidayCalendar,
-) -> Result<CountdownStats, String> {
+pub fn calculate(config: &WorkConfig, now: NaiveDateTime) -> Result<CountdownStats, String> {
     let times = config
         .times()?
         .map(|time| i64::from(time.num_seconds_from_midnight()));
     let date = now.date();
-    let workday = is_workday(date, calendar);
-    let result = crate::clock::calculate(
-        times,
-        i64::from(now.time().num_seconds_from_midnight()),
-        workday,
-    )?;
+    let result = crate::clock::calculate(times, i64::from(now.time().num_seconds_from_midnight()))?;
     Ok(CountdownStats {
         progress_percent: result.progress_percent,
         remaining_seconds: result.remaining_seconds,
         guandan_remaining_seconds: result.guandan_remaining_seconds,
         guandan_ready: result.guandan_ready,
-        is_workday: workday,
         status: result.status,
         date: date.to_string(),
-        calendar_known: calendar.years.contains(&date.year()),
         schedule: config.clone(),
     })
 }
@@ -95,14 +34,10 @@ pub fn calculate(
 mod tests {
     use super::*;
 
-    fn date(value: &str) -> NaiveDate {
-        value.parse().unwrap()
-    }
     fn stats(value: &str) -> CountdownStats {
         calculate(
             &WorkConfig::default(),
             NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S").unwrap(),
-            &HolidayCalendar::bundled(),
         )
         .unwrap()
     }
@@ -130,38 +65,31 @@ mod tests {
     }
 
     #[test]
-    fn custom_saturdays_and_holiday_priority() {
-        let calendar = HolidayCalendar::bundled();
-        assert!(is_workday(date("2026-11-28"), &calendar));
-        assert!(!is_workday(date("2026-11-21"), &calendar));
-        assert!(!is_workday(date("2026-11-29"), &calendar));
-        assert!(is_last_saturday(date("2026-09-26")));
-        assert!(!is_workday(date("2026-09-26"), &calendar));
-        // Extra national make-up working days are deliberately excluded.
-        assert!(!is_workday(date("2026-02-14"), &calendar));
-        assert!(!is_workday(date("2026-01-04"), &calendar));
-        let result = stats("2026-10-01 12:00:00");
-        assert_eq!(result.status, "day_off");
-        assert_eq!(result.progress_percent, 0.0);
-        assert_eq!(result.remaining_seconds, 0);
+    fn every_date_uses_the_configured_schedule() {
+        for date in [
+            "2026-11-21",
+            "2026-11-29",
+            "2026-09-26",
+            "2026-10-01",
+            "2027-01-01",
+        ] {
+            let result = stats(&format!("{date} 09:00:00"));
+            assert_eq!(result.status, "working");
+            assert_eq!(result.remaining_seconds, 30600);
+            assert_eq!(stats(&format!("{date} 12:00:00")).status, "lunch_break");
+        }
     }
 
     #[test]
     fn midnight_month_year_and_leap_day() {
         assert_eq!(stats("2026-11-30 23:59:59").status, "after_work");
         assert_eq!(stats("2026-12-01 00:00:00").progress_percent, 0.0);
-        assert!(is_last_saturday(date("2026-12-26")));
-        assert!(is_last_saturday(date("2028-02-26")));
         assert_eq!(stats("2028-02-29 09:00:00").status, "working");
-        assert!(!stats("2027-01-01 09:00:00").calendar_known);
+        assert_eq!(stats("2027-01-01 09:00:00").status, "working");
     }
 
     #[test]
-    fn rejects_bad_calendar_and_zero_duration() {
-        assert!(
-            HolidayCalendar::parse(r#"{"years":[2026],"ranges":[["2026-05-05","2026-05-01"]]}"#)
-                .is_err()
-        );
+    fn rejects_zero_duration() {
         let config = WorkConfig {
             end_time: "09:00".into(),
             ..WorkConfig::default()
@@ -169,8 +97,7 @@ mod tests {
         assert!(
             calculate(
                 &config,
-                date("2026-11-11").and_hms_opt(9, 0, 0).unwrap(),
-                &HolidayCalendar::bundled()
+                NaiveDateTime::parse_from_str("2026-11-11 09:00:00", "%Y-%m-%d %H:%M:%S").unwrap(),
             )
             .is_err()
         );
