@@ -2,6 +2,7 @@ mod calculator;
 mod clock;
 mod config;
 mod desktop;
+mod position;
 
 use calculator::{CountdownStats, calculate};
 use chrono::Local;
@@ -185,15 +186,7 @@ pub fn run() {
             }
             if let Some(window) = app.get_webview_window("main") {
                 window.set_always_on_top(config.always_on_top)?;
-                if let Some(monitor) = window.primary_monitor()? {
-                    let scale = monitor.scale_factor();
-                    let position = monitor.position();
-                    let size = monitor.size();
-                    window.set_position(tauri::PhysicalPosition::new(
-                        position.x + (size.width as f64 - 384.0 * scale).max(0.0) as i32,
-                        position.y + (80.0 * scale) as i32,
-                    ))?;
-                }
+                position::restore(&window, &directory)?;
             }
             app.manage(AppState {
                 runtime: Mutex::new(Runtime { config, warnings }),
@@ -204,6 +197,19 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Moved(point) = event {
+                if let Some(state) = window.app_handle().try_state::<AppState>() {
+                    let saved = position::SavedPosition {
+                        x: point.x,
+                        y: point.y,
+                    };
+                    if let Err(error) =
+                        config::write_json(&state.directory.join("window-position.json"), &saved)
+                    {
+                        eprintln!("窗口位置保存失败：{error}");
+                    }
+                }
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = window.hide();
