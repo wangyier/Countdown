@@ -1,8 +1,33 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_CONFIG, validateSchedule, formatCountdown } from "../src/time.js";
+import { DEFAULT_CONFIG, validateSchedule, formatCountdown, miniDisplay } from "../src/time.js";
 import { previewStats } from "../src/preview.js";
-import { attachWindowDrag } from "../src/drag.js";
+import { attachWindowDrag, attachMiniDrag } from "../src/drag.js";
+
+test("mini retains HH:MM below an hour and distinguishes last minute from after work", () => {
+  for (const [seconds, expected] of [[9360, "02:36"], [2700, "00:45"], [300, "00:05"], [60, "00:01"], [59, "即将下班"], [1, "即将下班"]]) {
+    assert.equal(miniDisplay({ status: "working", remaining_seconds: seconds }).time, expected);
+  }
+  assert.equal(miniDisplay({ status: "after_work", remaining_seconds: 0 }).time, "已下班");
+  assert.equal(miniDisplay({ status: "lunch_break", remaining_seconds: 19800 }).label, "午休中");
+});
+
+test("mini dragging waits for pointer movement and leaves buttons available", () => {
+  const handlers = new Map(); let calls = 0;
+  const region = { addEventListener: (type, handler) => handlers.set(type, handler), removeEventListener: type => handlers.delete(type) };
+  const detach = attachMiniDrag(region, { startDragging: () => { calls++; }, onError: error => { throw error; } });
+  const event = (extra = {}) => ({ button: 0, buttons: 1, clientX: 10, clientY: 10, target: { closest: () => null }, ...extra });
+  handlers.get("mousedown")(event());
+  handlers.get("mousemove")(event({ clientX: 12 }));
+  assert.equal(calls, 0);
+  handlers.get("mousemove")(event({ clientX: 15 }));
+  handlers.get("mousemove")(event({ clientX: 20 }));
+  assert.equal(calls, 1);
+  handlers.get("mousedown")(event({ target: { closest: () => ({}) } }));
+  handlers.get("mousemove")(event({ clientX: 30 }));
+  assert.equal(calls, 1);
+  detach(); assert.equal(handlers.size, 0);
+});
 
 test("reminder settings validate separately from working hours", () => {
   assert.equal(DEFAULT_CONFIG.reminder_enabled, true);

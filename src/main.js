@@ -1,19 +1,20 @@
-import { validateSchedule, formatCountdown, STATUS_DETAILS } from "./time.js";
+import { validateSchedule, formatCountdown, STATUS_DETAILS, miniDisplay } from "./time.js";
 import { createPreviewBridge } from "./preview.js";
-import { attachWindowDrag } from "./drag.js";
+import { attachWindowDrag, attachMiniDrag } from "./drag.js";
 
 const $ = (selector) => document.querySelector(selector);
 const desktop = Boolean(window.__TAURI__?.core?.invoke);
 const dialog = $("#settings-dialog");
 const form = $("#settings-form");
 const timeKeys = ["start_time", "end_time", "lunch_start_time", "lunch_end_time", "reminder_time"];
-const toggleKeys = ["autostart_enabled", "always_on_top", "reminder_enabled"];
+const toggleKeys = ["autostart_enabled", "always_on_top", "reminder_enabled", "show_ip"];
 let invoke;
 let config;
 let info;
 let syncing = false;
 let pendingSync = false;
 let saving = false;
+let switchingMode = false;
 let noticeTimeout;
 let lastSyncTime = 0;
 let lastInfoTime = 0;
@@ -25,7 +26,9 @@ function notify(message, persistent = false) {
   clearTimeout(noticeTimeout);
   $("#notice").textContent = String(message);
   $("#notice").hidden = false;
-  if (!persistent) noticeTimeout = setTimeout(() => { $("#notice").hidden = true; }, 6000);
+  $("#mini-notice").textContent = String(message);
+  $("#mini-notice").hidden = !config?.mini_mode;
+  if (!persistent) noticeTimeout = setTimeout(() => { $("#notice").hidden = true; $("#mini-notice").hidden = true; }, 6000);
 }
 
 function report(error) {
@@ -38,17 +41,28 @@ if (desktop) {
     startDragging: () => window.__TAURI__.window.getCurrentWindow().startDragging(),
     onError: (error) => notify(`窗口拖动失败：${error instanceof Error ? error.message : String(error)}`),
   }));
+  unlisteners.push(attachMiniDrag($("#mini-widget"), {
+    startDragging: () => window.__TAURI__.window.getCurrentWindow().startDragging(),
+    onError: report,
+  }));
 } else {
   $(".topbar").title = "浏览器预览无法拖动系统窗口，请在桌面版中拖动";
 }
 
 function renderConfig(value) {
   config = value;
+  document.body.dataset.mini = String(Boolean(value.mini_mode));
+  $("#widget").hidden = Boolean(value.mini_mode);
+  $("#mini-widget").hidden = !value.mini_mode;
+  if (value.mini_mode && dialog.open) dialog.close();
+  if (!value.mini_mode) { $("#mini-menu").hidden = true; $("#mini-notice").hidden = true; }
+  $("#ip-label").hidden = !value.show_ip;
   const pin = $("#pin-button");
   const label = value.always_on_top ? "取消置顶" : "窗口置顶";
   pin.setAttribute("aria-pressed", String(value.always_on_top));
   pin.setAttribute("aria-label", label);
   pin.title = label;
+  $("#mini-menu-pin").textContent = value.always_on_top ? "取消置顶" : "置顶";
   $("#reminder-time").textContent = value.reminder_enabled ? value.reminder_time : "已关闭";
   $("#reminder-time").title = value.reminder_enabled ? `每天 ${value.reminder_time} 提醒点外卖` : "外卖提醒已关闭";
 }
@@ -71,6 +85,15 @@ function renderStats(value) {
   $("#guandan-status").textContent = guandanReached ? "开饭时间到！"
     : value.guandan_remaining_seconds === 0 ? "今日已结束" : `目标 ${value.schedule.lunch_start_time}`;
   const progress = Math.min(100, Math.max(0, value.progress_percent));
+  const mini = miniDisplay(value);
+  $("#mini-widget").dataset.status = value.status;
+  $("#mini-label").textContent = mini.label;
+  $("#mini-time").textContent = mini.time;
+  $("#mini-time").classList.toggle("words", mini.words);
+  $("#mini-time").setAttribute("aria-label", mini.words ? mini.time : `${parts[0]}小时${parts[1]}分钟`);
+  $("#mini-percent").textContent = `${Math.round(progress)}%`;
+  $("#mini-fill").style.strokeDashoffset = String(175.929 * (1 - progress / 100));
+  $("#mini-ring").setAttribute("aria-valuenow", progress.toFixed(1));
   $("#progress-value").replaceChildren(document.createTextNode(progress.toFixed(1)), Object.assign(document.createElement("small"), { textContent: "%" }));
   $("#progress-fill").style.width = `${progress}%`;
   $("#progress").setAttribute("aria-valuenow", progress.toFixed(1));
@@ -108,6 +131,7 @@ async function sync() {
   } catch (error) {
     if (!connectionError) { connectionError = true; notify(`同步失败：${String(error)}`, true); }
     $("#status-label").textContent = "等待同步";
+    $("#mini-label").textContent = "等待同步";
   } finally {
     syncing = false;
     if (pendingSync && !stopped) { pendingSync = false; void sync(); }
@@ -118,6 +142,7 @@ async function openSettings() {
   if (dialog.open || saving || !invoke) return;
   $("#settings-button").disabled = true;
   try {
+    if (config?.mini_mode) await setMiniMode(false);
     const current = await invoke("get_config");
     if (dialog.open) return;
     renderConfig(current);
@@ -129,6 +154,32 @@ async function openSettings() {
   } catch (error) { report(error); }
   finally { $("#settings-button").disabled = false; }
 }
+
+async function setMiniMode(enabled) {
+  if (saving || switchingMode || !invoke) return;
+  switchingMode = true;
+  $("#mini-menu").hidden = true;
+  try {
+    renderConfig(await invoke("set_mini_mode", { enabled }));
+    await sync();
+  } finally { switchingMode = false; }
+}
+$("#mini-button").addEventListener("click", () => { void setMiniMode(true).catch(report); });
+const expand = () => { void setMiniMode(false).catch(report); };
+$("#mini-expand").addEventListener("click", expand);
+$("#mini-menu-expand").addEventListener("click", expand);
+$("#mini-widget").addEventListener("dblclick", (event) => { if (!event.target.closest("button, [data-no-drag]")) expand(); });
+function openMiniMenu(event) { event.preventDefault(); $("#mini-menu").hidden = false; }
+$("#mini-widget").addEventListener("contextmenu", openMiniMenu);
+$("#mini-widget").addEventListener("keydown", (event) => {
+  if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) openMiniMenu(event);
+  else if (event.key === "Enter" && event.target === $("#mini-widget")) expand();
+});
+$("#mini-menu-close").addEventListener("click", () => { $("#mini-menu").hidden = true; });
+$("#mini-menu-settings").addEventListener("click", openSettings);
+$("#mini-menu-pin").addEventListener("click", () => { $("#pin-button").click(); $("#mini-menu").hidden = true; });
+$("#mini-menu-hide").addEventListener("click", () => { $("#mini-menu").hidden = true; void hide(); });
+$("#mini-notice").addEventListener("click", () => { $("#mini-notice").hidden = true; });
 
 function closeSettings() { if (!saving) dialog.close(); }
 function updateReminderInput() {
@@ -186,6 +237,7 @@ async function hide() {
 }
 $("#hide-button").addEventListener("click", hide);
 document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !$("#mini-menu").hidden) { event.preventDefault(); $("#mini-menu").hidden = true; return; }
   if (event.key === "Escape" && !dialog.open) { event.preventDefault(); void hide(); }
 });
 $("#footer-label").addEventListener("click", () => {

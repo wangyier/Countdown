@@ -24,6 +24,7 @@
       <header class="topbar">
         <div class="brand"><span class="brand-mark"><img src="assets/app-icon.png" alt="" draggable="false" /></span><h1>我要第一个溜<span> / 下班倒计时</span></h1></div>
         <div class="window-actions">
+          <button class="icon-button" id="mini-button" aria-label="切换迷你模式" title="迷你模式"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><rect x="12" y="11" width="6" height="5" rx="1"/></svg></button>
           <button class="icon-button" id="pin-button" aria-label="窗口置顶" aria-pressed="false" title="窗口置顶"><svg><use href="#icon-pin"/></svg></button>
           <button class="icon-button" id="settings-button" aria-label="打开设置" title="设置"><svg><use href="#icon-settings"/></svg></button>
           <button class="icon-button" id="hide-button" aria-label="隐藏到托盘" title="隐藏到托盘 · Esc"><svg><use href="#icon-hide"/></svg></button>
@@ -50,8 +51,23 @@
       </section>
 
       <div class="reminder"><span class="reminder-icon"><svg><use href="#icon-bell"/></svg></span><span>好好吃饭，才有力气下班</span><span class="reminder-time" id="reminder-time">正在同步</span></div>
-      <footer><span id="ip-label" title="仅显示本地私有 IPv4 地址末段">IP · —</span><span id="footer-label" data-no-drag>准时收工，生活开场 <span class="footer-star">✳</span></span></footer>
+      <footer><span id="ip-label" title="仅显示本地私有 IPv4 地址末段" hidden>IP · —</span><span id="footer-label" data-no-drag>准时收工，生活开场 <span class="footer-star">✳</span></span></footer>
       <p id="notice" class="notice" role="status" data-no-drag hidden></p>
+    </main>
+
+    <main id="mini-widget" class="mini-widget" hidden tabindex="0" title="拖动移动 · 双击展开 · 右键菜单">
+      <div class="mini-copy"><div class="mini-label"><i></i><span id="mini-label">距离下班</span></div><div class="mini-time" id="mini-time">--:--</div></div>
+      <button class="mini-ring-button" id="mini-expand" aria-label="展开完整界面" title="展开完整界面">
+        <span class="mini-ring" id="mini-ring" role="progressbar" aria-label="有效工时完成比例" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <svg viewBox="0 0 64 64" aria-hidden="true"><circle class="mini-track" cx="32" cy="32" r="28"/><circle class="mini-fill" id="mini-fill" cx="32" cy="32" r="28"/></svg>
+          <span id="mini-percent">--%</span>
+        </span>
+      </button>
+      <div id="mini-menu" class="mini-menu" data-no-drag hidden>
+        <div class="mini-menu-heading"><span>快捷操作</span><button id="mini-menu-close" aria-label="关闭快捷操作">×</button></div>
+        <div class="mini-menu-actions"><button id="mini-menu-expand">展开</button><button id="mini-menu-settings">设置</button><button id="mini-menu-pin">置顶</button><button id="mini-menu-hide">隐藏</button></div>
+      </div>
+      <p id="mini-notice" role="status" data-no-drag hidden></p>
     </main>
 
     <dialog id="settings-dialog" aria-labelledby="settings-title">
@@ -68,6 +84,7 @@
         <label class="switch-row" for="reminder-time-input"><span>提醒时间</span><input id="reminder-time-input" type="time" name="reminder_time" required /></label>
         <label class="switch-row"><span>开机自动启动<small>登录电脑后，自动开始倒计时</small></span><input type="checkbox" name="autostart_enabled" role="switch" /></label>
         <label class="switch-row"><span>窗口始终置顶<small>在其他窗口上方显示挂件</small></span><input type="checkbox" name="always_on_top" role="switch" /></label>
+        <label class="switch-row"><span>显示本机 IP<small>在左下角显示私有 IPv4 地址末段</small></span><input type="checkbox" name="show_ip" role="switch" /></label>
         <p class="calendar-note" id="schedule-note">每天按设置的上下班和午休时间计算</p>
         <p class="form-error" id="settings-error" role="alert" hidden></p>
         <div class="dialog-actions"><button type="button" class="secondary-button" id="cancel-settings">取消</button><button type="submit" class="primary-button" id="save-button">保存设置 <span aria-hidden="true">↗</span></button></div>

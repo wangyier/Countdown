@@ -36,7 +36,7 @@ cargo tauri build
 
 NSIS 安装包输出到 `src-tauri/target/release/bundle/nsis/`。无前端构建步骤，Tauri 直接嵌入 `src/`。
 
-release 程序位于 `src-tauri/target/release/countdown.exe`。NSIS 打包工具已就绪，当前安装版输出为 `src-tauri/target/release/bundle/nsis/我要第一个溜_0.2.0_x64-setup.exe`。
+release 程序位于 `src-tauri/target/release/countdown.exe`。NSIS 打包工具已就绪，当前安装版输出为 `src-tauri/target/release/bundle/nsis/我要第一个溜_0.3.0_x64-setup.exe`。
 
 若环境设置了 `CARGO_NET_OFFLINE=true` 且尚未缓存依赖，可在自己的 PowerShell 会话中执行 `$env:CARGO_NET_OFFLINE = 'false'` 后重试；代理应指向实际可连接的代理地址。
 
@@ -74,6 +74,8 @@ cargo tauri build --no-bundle -- --offline
 
 ## 使用与配置
 
+- 标题栏的迷你按钮或托盘“切换迷你模式”可进入 200×84 的 mini 界面，只显示下班小时分钟和有效工时进度圆环，不显示 IP、日期或开饭倒计时。小于一小时保持 `00:45` 格式，不足一分钟显示“即将下班”，到点显示“已下班”；午休期间圆环暂停。
+- mini 空白区域可拖动，双击空白处或点击圆环展开完整界面；右键或 Shift+F10 打开快捷操作，可展开、设置、置顶或隐藏。打开设置时先展开完整界面。模式保存在 `config.json` 的 `mini_mode` 字段，旧配置默认完整界面；切换尺寸尽量保持右下角不动，并限制在当前屏幕工作区内。
 - 首次启动默认显示在主显示器工作区右下角，距右侧和底部约 24 个逻辑像素，避开任务栏。拖动后将位置保存到配置目录的 `window-position.json`，下次启动恢复；旧位置无法完整放入当前任一显示器工作区时，回到主显示器右下角。
 - 桌面版可在标题、倒计时文字和卡片空白区域按住鼠标左键移动窗口；按钮、设置表单和提示信息不触发拖动。图钉切换置顶（默认关闭），齿轮打开设置。已有配置中的手动选择会保留。浏览器预览不能拖动 Windows 窗口。
 - 首页展示下班倒计时、开饭倒计时和今日进度，不显示上班/午休/下班时间表；具体时间在齿轮设置弹窗中修改。
@@ -95,11 +97,15 @@ cargo tauri build --no-bundle -- --offline
   "autostart_enabled": true,
   "always_on_top": false,
   "reminder_enabled": true,
-  "reminder_time": "10:35"
+  "reminder_time": "10:35",
+  "show_ip": false,
+  "mini_mode": false
 }
 ```
 
 保存为 `config.json`。要求上班 < 午休开始 < 午休结束 < 下班，不支持跨日班次。应用会先写临时文件并刷新，再替换配置文件；保存失败时尝试恢复系统设置。
+
+“显示本机 IP”默认关闭，开启后在左下角以 13px 白色常规字重显示私有 IPv4 地址末段，并在托盘悬停提示的应用名后显示同一末段数字。设置保存后立即生效，重启后保留；旧配置缺少此字段时默认关闭。未找到可用地址时显示 `—`。
 
 每天按设置的上下班和午休时间计算，不判断周末、月末周六或节假日。不再加载内置日历或配置目录中的 `holidays.json`，无需维护年度数据。旧日历文件可以保留，不影响运行。
 

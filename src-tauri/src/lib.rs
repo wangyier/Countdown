@@ -57,17 +57,32 @@ fn apply_config(
     let mut runtime = state.runtime.lock().map_err(|e| e.to_string())?;
     let window = app.get_webview_window("main").ok_or("窗口未就绪")?;
     let old_autostart = app.autolaunch().is_enabled().map_err(|e| e.to_string())?;
+    let old_position = window.outer_position().map_err(|e| e.to_string())?;
+    let old_size = window.outer_size().map_err(|e| e.to_string())?;
     autostart(app, config.autostart_enabled)?;
     let result = window
         .set_always_on_top(config.always_on_top)
         .map_err(|e| e.to_string())
+        .and_then(|_| {
+            if config.mini_mode != runtime.config.mini_mode {
+                position::resize(&window, config.mini_mode).map_err(|e| e.to_string())
+            } else {
+                Ok(())
+            }
+        })
         .and_then(|_| config::write_json(&state.directory.join("config.json"), &config));
     if let Err(error) = result {
         let rollback_autostart = autostart(app, old_autostart);
         let rollback_pin = window.set_always_on_top(runtime.config.always_on_top);
+        let rollback_size = window.set_size(old_size);
+        let rollback_position = window.set_position(old_position);
         return Err(format!(
             "保存失败：{error}{}",
-            if rollback_autostart.is_err() || rollback_pin.is_err() {
+            if rollback_autostart.is_err()
+                || rollback_pin.is_err()
+                || rollback_size.is_err()
+                || rollback_position.is_err()
+            {
                 "；系统设置回退失败，请重新检查设置"
             } else {
                 ""
@@ -106,6 +121,30 @@ fn get_countdown_stats(state: tauri::State<'_, AppState>) -> Result<CountdownSta
 
 #[tauri::command]
 fn get_app_info(state: tauri::State<'_, AppState>) -> Result<AppInfo, String> {
+    Ok(AppInfo {
+        local_ip_suffix: local_ip_suffix(),
+        warnings: state
+            .runtime
+            .lock()
+            .map_err(|e| e.to_string())?
+            .warnings
+            .clone(),
+    })
+}
+
+fn local_ip_suffix() -> Option<String> {
+    use std::{
+        sync::OnceLock,
+        time::{Duration, Instant},
+    };
+    type Cache = Option<(Instant, Option<String>)>;
+    static CACHE: OnceLock<Mutex<Cache>> = OnceLock::new();
+    let mut cache = CACHE.get_or_init(|| Mutex::new(None)).lock().ok()?;
+    if let Some((updated, value)) = &*cache {
+        if updated.elapsed() < Duration::from_secs(30) {
+            return value.clone();
+        }
+    }
     // Prefer the requested LAN subnet, then other private IPv4 addresses.
     let mut candidates: Vec<_> = local_ip_address::list_afinet_netifas()
         .unwrap_or_default()
@@ -133,15 +172,9 @@ fn get_app_info(state: tauri::State<'_, AppState>) -> Result<AppInfo, String> {
         })
         .collect();
     candidates.sort_by_key(|(key, _)| *key);
-    Ok(AppInfo {
-        local_ip_suffix: candidates.first().map(|(_, suffix)| suffix.clone()),
-        warnings: state
-            .runtime
-            .lock()
-            .map_err(|e| e.to_string())?
-            .warnings
-            .clone(),
-    })
+    let suffix = candidates.first().map(|(_, suffix)| suffix.clone());
+    *cache = Some((Instant::now(), suffix.clone()));
+    suffix
 }
 
 #[tauri::command]
@@ -159,6 +192,22 @@ fn toggle_pin(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Resul
         .clone();
     config.always_on_top = !config.always_on_top;
     Ok(apply_config(&app, &state, config)?.always_on_top)
+}
+
+#[tauri::command]
+fn set_mini_mode(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    enabled: bool,
+) -> Result<WorkConfig, String> {
+    let mut config = state
+        .runtime
+        .lock()
+        .map_err(|e| e.to_string())?
+        .config
+        .clone();
+    config.mini_mode = enabled;
+    apply_config(&app, &state, config)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -186,6 +235,7 @@ pub fn run() {
             }
             if let Some(window) = app.get_webview_window("main") {
                 window.set_always_on_top(config.always_on_top)?;
+                window.set_size(position::mode_size(config.mini_mode))?;
                 position::restore(&window, &directory)?;
             }
             app.manage(AppState {
@@ -221,7 +271,8 @@ pub fn run() {
             get_countdown_stats,
             get_app_info,
             hide_window,
-            toggle_pin
+            toggle_pin,
+            set_mini_mode
         ])
         .run(tauri::generate_context!())
         .expect("无法启动下班倒计时");

@@ -1,4 +1,4 @@
-use crate::{AppState, calculator, config, toggle_pin};
+use crate::{AppState, calculator, config, set_mini_mode, toggle_pin};
 use chrono::{Local, NaiveDate, NaiveDateTime, Timelike};
 use std::{collections::BTreeSet, fs, time::Duration};
 use tauri::{
@@ -33,6 +33,7 @@ pub fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         &[
             &MenuItem::with_id(app, "visibility", "显示 / 隐藏窗口", true, None::<&str>)?,
             &MenuItem::with_id(app, "pin", "切换窗口置顶", true, None::<&str>)?,
+            &MenuItem::with_id(app, "mini", "切换迷你模式", true, None::<&str>)?,
             &MenuItem::with_id(app, "settings", "配置设置", true, None::<&str>)?,
             &MenuItem::with_id(app, "quit", "退出应用", true, None::<&str>)?,
         ],
@@ -52,6 +53,19 @@ pub fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
             "settings" => {
                 show_window(app);
                 let _ = app.emit("open-settings", ());
+            }
+            "mini" => {
+                let state = app.state::<AppState>();
+                let enabled = state
+                    .runtime
+                    .lock()
+                    .map(|runtime| !runtime.config.mini_mode)
+                    .ok();
+                if let Some(enabled) = enabled {
+                    if let Err(error) = set_mini_mode(app.clone(), state, enabled) {
+                        let _ = app.emit("app-error", error);
+                    }
+                }
             }
             "quit" => app.exit(0),
             _ => {}
@@ -150,14 +164,24 @@ pub(super) fn update_tooltip(app: &tauri::AppHandle, state: &AppState) {
         return;
     };
     drop(runtime);
-    let text = tooltip_text(&stats);
+    let suffix = if stats.schedule.show_ip {
+        crate::local_ip_suffix()
+    } else {
+        None
+    };
+    let text = tooltip_text_with_ip(&stats, suffix.as_deref());
     if let Some(tray) = app.tray_by_id("countdown") {
         let _ = tray.set_tooltip(Some(text));
     }
 }
 
-fn tooltip_text(stats: &calculator::CountdownStats) -> String {
-    let mut lines = vec!["我要第一个溜".to_string()];
+fn tooltip_text_with_ip(stats: &calculator::CountdownStats, suffix: Option<&str>) -> String {
+    let title = if stats.schedule.show_ip {
+        format!("我要第一个溜 {}", suffix.unwrap_or("—"))
+    } else {
+        "我要第一个溜".to_string()
+    };
+    let mut lines = vec![title];
     let seconds = stats.remaining_seconds;
     let text = match stats.status {
         "after_work" => String::new(),
@@ -205,7 +229,23 @@ mod tests {
             NaiveDateTime::parse_from_str(timestamp, "%Y-%m-%d %H:%M:%S").unwrap(),
         )
         .unwrap();
-        tooltip_text(&stats)
+        tooltip_text_with_ip(&stats, None)
+    }
+
+    #[test]
+    fn tooltip_ip_follows_display_setting_even_after_work() {
+        let mut config = config::WorkConfig::default();
+        let now =
+            NaiveDateTime::parse_from_str("2026-11-13 18:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
+        let stats = calculator::calculate(&config, now).unwrap();
+        assert_eq!(tooltip_text_with_ip(&stats, Some("123")), "我要第一个溜");
+        config.show_ip = true;
+        let stats = calculator::calculate(&config, now).unwrap();
+        assert_eq!(
+            tooltip_text_with_ip(&stats, Some("123")),
+            "我要第一个溜 123"
+        );
+        assert_eq!(tooltip_text_with_ip(&stats, None), "我要第一个溜 —");
     }
 
     #[test]

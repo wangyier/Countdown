@@ -38,6 +38,10 @@ export async function createPreviewBridge() {
       case "get_config": return { ...config };
       case "get_countdown_stats": return previewStats(config);
       case "get_app_info": return { local_ip_suffix: null, warnings: [] };
+      case "set_mini_mode":
+        config = { ...config, mini_mode: Boolean(args.enabled) };
+        localStorage.setItem("countdown-preview-config", JSON.stringify(config));
+        return { ...config };
       case "save_config":
         validateSchedule(args.config);
         localStorage.setItem("countdown-preview-config", JSON.stringify(args.config));

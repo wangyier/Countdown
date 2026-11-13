@@ -13,6 +13,8 @@ pub struct WorkConfig {
     pub always_on_top: bool,
     pub reminder_enabled: bool,
     pub reminder_time: String,
+    pub show_ip: bool,
+    pub mini_mode: bool,
 }
 
 impl Default for WorkConfig {
@@ -26,6 +28,8 @@ impl Default for WorkConfig {
             always_on_top: false,
             reminder_enabled: true,
             reminder_time: "10:35".into(),
+            show_ip: false,
+            mini_mode: false,
         }
     }
 }
@@ -110,8 +114,12 @@ mod tests {
     fn old_configs_receive_reminder_defaults_and_new_settings_roundtrip() {
         let old: WorkConfig = serde_json::from_str(r#"{"start_time":"08:30"}"#).unwrap();
         assert!(old.reminder_enabled);
+        assert!(!old.show_ip);
+        assert!(!old.mini_mode);
         assert_eq!(old.reminder_time, "10:35");
         let changed = WorkConfig {
+            show_ip: true,
+            mini_mode: true,
             reminder_enabled: false,
             reminder_time: "12:20".into(),
             ..old

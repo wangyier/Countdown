@@ -7,6 +7,8 @@ export const DEFAULT_CONFIG = Object.freeze({
   always_on_top: false,
   reminder_enabled: true,
   reminder_time: "10:35",
+  show_ip: false,
+  mini_mode: false,
 });
 
 export function secondsOfDay(value) {
@@ -30,6 +32,13 @@ export function formatCountdown(seconds) {
   const value = Math.max(0, Math.floor(seconds));
   return [Math.floor(value / 3600), Math.floor(value / 60) % 60, value % 60]
     .map((part) => String(part).padStart(2, "0"));
+}
+
+export function miniDisplay(stats) {
+  if (stats.status === "after_work") return { label: "今日已结束", time: "已下班", words: true };
+  if (stats.remaining_seconds < 60) return { label: "距离下班", time: "即将下班", words: true };
+  const parts = formatCountdown(stats.remaining_seconds);
+  return { label: stats.status === "lunch_break" ? "午休中" : "距离下班", time: `${parts[0]}:${parts[1]}`, words: false };
 }
 
 export const STATUS_DETAILS = Object.freeze({

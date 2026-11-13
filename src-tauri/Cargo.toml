@@ -1,6 +1,6 @@
 [package]
 name = "countdown"
-version = "0.2.0"
+version = "0.3.0"
 description = "我要第一个溜：下班与开饭倒计时桌面挂件"
 authors = ["you"]
 edition = "2024"
