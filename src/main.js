@@ -68,7 +68,7 @@ function renderStats(value) {
   $("#guandan-countdown").setAttribute("aria-label", `${guandanParts[0]}小时${guandanParts[1]}分钟${guandanParts[2]}秒`);
   const guandanReached = value.guandan_ready;
   $("#guandan-card").dataset.reached = String(guandanReached);
-  $("#guandan-status").textContent = guandanReached ? "掼蛋时间到！"
+  $("#guandan-status").textContent = guandanReached ? "开饭时间到！"
     : value.guandan_remaining_seconds === 0 ? "今日已结束" : `目标 ${value.schedule.lunch_start_time}`;
   const progress = Math.min(100, Math.max(0, value.progress_percent));
   $("#progress-value").replaceChildren(document.createTextNode(progress.toFixed(1)), Object.assign(document.createElement("small"), { textContent: "%" }));
