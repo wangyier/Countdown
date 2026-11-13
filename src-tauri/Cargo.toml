@@ -4,6 +4,7 @@ version = "0.2.0"
 description = "我要第一个溜：下班与开饭倒计时桌面挂件"
 authors = ["you"]
 edition = "2024"
+license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
