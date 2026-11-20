@@ -15,6 +15,7 @@ use tauri_plugin_autostart::ManagerExt;
 struct Runtime {
     config: WorkConfig,
     warnings: Vec<String>,
+    pomodoro: Option<desktop::PomodoroTooltip>,
 }
 
 struct AppState {
@@ -56,10 +57,16 @@ fn apply_config(
     config.times()?;
     let mut runtime = state.runtime.lock().map_err(|e| e.to_string())?;
     let window = app.get_webview_window("main").ok_or("窗口未就绪")?;
-    let old_autostart = app.autolaunch().is_enabled().map_err(|e| e.to_string())?;
     let old_position = window.outer_position().map_err(|e| e.to_string())?;
     let old_size = window.outer_size().map_err(|e| e.to_string())?;
-    autostart(app, config.autostart_enabled)?;
+    let mut changed_autostart = None;
+    if config.autostart_enabled != runtime.config.autostart_enabled {
+        let enabled = app.autolaunch().is_enabled().map_err(|e| e.to_string())?;
+        if enabled != config.autostart_enabled {
+            autostart(app, config.autostart_enabled)?;
+            changed_autostart = Some(enabled);
+        }
+    }
     let result = window
         .set_always_on_top(config.always_on_top)
         .map_err(|e| e.to_string())
@@ -72,13 +79,14 @@ fn apply_config(
         })
         .and_then(|_| config::write_json(&state.directory.join("config.json"), &config));
     if let Err(error) = result {
-        let rollback_autostart = autostart(app, old_autostart);
+        let rollback_autostart_failed =
+            changed_autostart.is_some_and(|enabled| autostart(app, enabled).is_err());
         let rollback_pin = window.set_always_on_top(runtime.config.always_on_top);
         let rollback_size = window.set_size(old_size);
         let rollback_position = window.set_position(old_position);
         return Err(format!(
             "保存失败：{error}{}",
-            if rollback_autostart.is_err()
+            if rollback_autostart_failed
                 || rollback_pin.is_err()
                 || rollback_size.is_err()
                 || rollback_position.is_err()
@@ -89,10 +97,11 @@ fn apply_config(
             }
         ));
     }
+    let updated_autostart = config.autostart_enabled != runtime.config.autostart_enabled;
     runtime.config = config.clone();
-    runtime
-        .warnings
-        .retain(|warning| !warning.starts_with("配置") && !warning.starts_with("开机自启动"));
+    runtime.warnings.retain(|warning| {
+        !warning.starts_with("配置") && !(updated_autostart && warning.starts_with("开机自启动"))
+    });
     drop(runtime);
     desktop::update_tooltip(app, state);
     let _ = app.emit("config-changed", ());
@@ -183,6 +192,18 @@ fn hide_window(window: tauri::WebviewWindow) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn set_pomodoro_tooltip(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    timer: Option<desktop::PomodoroTooltip>,
+) -> Result<(), String> {
+    state.runtime.lock().map_err(|e| e.to_string())?.pomodoro = timer;
+    desktop::update_pomodoro_menu(&app, timer);
+    desktop::update_tooltip(&app, &state);
+    Ok(())
+}
+
+#[tauri::command]
 fn toggle_pin(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Result<bool, String> {
     let mut config = state
         .runtime
@@ -239,7 +260,11 @@ pub fn run() {
                 position::restore(&window, &directory)?;
             }
             app.manage(AppState {
-                runtime: Mutex::new(Runtime { config, warnings }),
+                runtime: Mutex::new(Runtime {
+                    config,
+                    warnings,
+                    pomodoro: None,
+                }),
                 directory,
             });
             desktop::setup_tray(app)?;
@@ -271,6 +296,7 @@ pub fn run() {
             get_countdown_stats,
             get_app_info,
             hide_window,
+            set_pomodoro_tooltip,
             toggle_pin,
             set_mini_mode
         ])

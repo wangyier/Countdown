@@ -3,6 +3,49 @@ import assert from "node:assert/strict";
 import { DEFAULT_CONFIG, validateSchedule, formatCountdown, miniDisplay } from "../src/time.js";
 import { previewStats } from "../src/preview.js";
 import { attachWindowDrag, attachMiniDrag } from "../src/drag.js";
+import { Pomodoro, formatPomodoro } from "../src/pomodoro.js";
+
+test("pomodoro pauses and resumes without counting hidden time twice", () => {
+  const timer = new Pomodoro({ minutes: { focus: 1, break: 1 } });
+  const now = new Date(2026, 10, 20, 9).getTime();
+  timer.toggle(now);
+  timer.toggle(now + 15_300);
+  assert.equal(timer.running, false);
+  assert.equal(timer.active, true);
+  assert.equal(formatPomodoro(timer.remaining), "00:45");
+  assert.equal(timer.update(now + 60_000), null);
+  timer.toggle(now + 90_000);
+  assert.equal(timer.update(now + 140_000), "focus");
+  assert.equal(timer.todayRounds(now), 1);
+  assert.equal(timer.phase, "break");
+  assert.equal(timer.active, false);
+  assert.equal(timer.update(now + 200_000), null);
+  timer.toggle(now + 200_000);
+  assert.equal(timer.update(now + 260_000), "break");
+  assert.equal(timer.phase, "focus");
+  assert.equal(timer.todayRounds(now), 1);
+});
+
+test("pomodoro counts by completion date and saves valid durations and rounds", () => {
+  const timer = new Pomodoro();
+  const now = new Date(2026, 10, 20, 23, 58).getTime();
+  assert.equal(timer.setMinutes({ focus: 1, break: 2 }), true);
+  timer.toggle(now);
+  const nextDay = new Date(2026, 10, 21).getTime();
+  assert.equal(timer.update(nextDay), "focus");
+  assert.equal(timer.todayRounds(now), 1);
+  assert.equal(timer.todayRounds(nextDay), 0);
+  timer.toggle(nextDay);
+  assert.equal(timer.setMinutes({ focus: 2, break: 2 }), true);
+  assert.equal(timer.running, true);
+  assert.equal(timer.setMinutes({ focus: 2, break: 61 }), false);
+  assert.equal(timer.setMinutes({ focus: 2, break: 1 }), true);
+  assert.equal(timer.running, false);
+  assert.equal(timer.remaining, 60_000);
+  const restored = new Pomodoro(JSON.parse(JSON.stringify(timer.saved)));
+  assert.equal(restored.todayRounds(now), 1);
+  assert.equal(restored.remaining, 120_000);
+});
 
 test("mini retains HH:MM below an hour and distinguishes last minute from after work", () => {
   for (const [seconds, expected] of [[9360, "02:36"], [2700, "00:45"], [300, "00:05"], [60, "00:01"], [59, "即将下班"], [1, "即将下班"]]) {

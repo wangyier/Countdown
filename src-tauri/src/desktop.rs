@@ -1,12 +1,70 @@
-use crate::{AppState, calculator, config, set_mini_mode, toggle_pin};
+use crate::{AppState, calculator, config, toggle_pin};
 use chrono::{Local, NaiveDate, NaiveDateTime, Timelike};
+use serde::Deserialize;
 use std::{collections::BTreeSet, fs, time::Duration};
 use tauri::{
-    Emitter, Manager,
+    Emitter, Manager, Wry,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
 use tauri_plugin_notification::NotificationExt;
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum PomodoroPhase {
+    Focus,
+    Break,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(tag = "kind", content = "milliseconds", rename_all = "snake_case")]
+enum PomodoroClock {
+    Deadline(i64),
+    Paused(i64),
+}
+
+#[derive(Clone, Copy, Deserialize)]
+pub(super) struct PomodoroTooltip {
+    phase: PomodoroPhase,
+    clock: PomodoroClock,
+}
+
+struct PomodoroMenu(MenuItem<Wry>);
+
+impl PomodoroTooltip {
+    fn line(self, now_ms: i64) -> Option<String> {
+        let (remaining, paused) = match self.clock {
+            PomodoroClock::Deadline(deadline) => (deadline.saturating_sub(now_ms), false),
+            PomodoroClock::Paused(remaining) => (remaining, true),
+        };
+        if remaining <= 0 {
+            return None;
+        }
+        let seconds = (remaining as u64).div_ceil(1000);
+        let phase = match self.phase {
+            PomodoroPhase::Focus => "专注",
+            PomodoroPhase::Break => "休息",
+        };
+        let status = if paused { "（已暂停）" } else { "" };
+        Some(format!(
+            "番茄钟 · {phase} {:02}:{:02}{status}",
+            seconds / 60,
+            seconds % 60
+        ))
+    }
+}
+
+pub(super) fn update_pomodoro_menu(app: &tauri::AppHandle, timer: Option<PomodoroTooltip>) {
+    let Some(menu) = app.try_state::<PomodoroMenu>() else {
+        return;
+    };
+    let label = match timer.map(|timer| timer.clock) {
+        Some(PomodoroClock::Deadline(_)) => "暂停番茄钟",
+        Some(PomodoroClock::Paused(_)) => "继续番茄钟",
+        None => "开始番茄钟",
+    };
+    let _ = menu.0.set_text(label);
+}
 
 pub fn show_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
@@ -28,16 +86,19 @@ fn toggle_window(app: &tauri::AppHandle) {
 }
 
 pub fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
+    let pomodoro = MenuItem::with_id(app, "pomodoro", "开始番茄钟", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
         &[
             &MenuItem::with_id(app, "visibility", "显示 / 隐藏窗口", true, None::<&str>)?,
             &MenuItem::with_id(app, "pin", "切换窗口置顶", true, None::<&str>)?,
             &MenuItem::with_id(app, "mini", "切换迷你模式", true, None::<&str>)?,
+            &pomodoro,
             &MenuItem::with_id(app, "settings", "配置设置", true, None::<&str>)?,
             &MenuItem::with_id(app, "quit", "退出应用", true, None::<&str>)?,
         ],
     )?;
+    app.manage(PomodoroMenu(pomodoro));
     let tray = TrayIconBuilder::with_id("countdown")
         .icon(tauri::include_image!("icons/tray/32x32.png"))
         .tooltip("我要第一个溜")
@@ -55,17 +116,10 @@ pub fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
                 let _ = app.emit("open-settings", ());
             }
             "mini" => {
-                let state = app.state::<AppState>();
-                let enabled = state
-                    .runtime
-                    .lock()
-                    .map(|runtime| !runtime.config.mini_mode)
-                    .ok();
-                if let Some(enabled) = enabled {
-                    if let Err(error) = set_mini_mode(app.clone(), state, enabled) {
-                        let _ = app.emit("app-error", error);
-                    }
-                }
+                let _ = app.emit("toggle-mini-mode", ());
+            }
+            "pomodoro" => {
+                let _ = app.emit("toggle-pomodoro", ());
             }
             "quit" => app.exit(0),
             _ => {}
@@ -157,31 +211,46 @@ pub fn start_clock(app: tauri::AppHandle) {
 }
 
 pub(super) fn update_tooltip(app: &tauri::AppHandle, state: &AppState) {
-    let Ok(runtime) = state.runtime.lock() else {
+    let Ok(mut runtime) = state.runtime.lock() else {
         return;
     };
-    let Ok(stats) = calculator::calculate(&runtime.config, Local::now().naive_local()) else {
+    let now = Local::now();
+    let Ok(stats) = calculator::calculate(&runtime.config, now.naive_local()) else {
         return;
     };
+    let pomodoro = runtime
+        .pomodoro
+        .and_then(|timer| timer.line(now.timestamp_millis()));
+    let expired = pomodoro.is_none() && runtime.pomodoro.take().is_some();
     drop(runtime);
+    if expired {
+        update_pomodoro_menu(app, None);
+    }
     let suffix = if stats.schedule.show_ip {
         crate::local_ip_suffix()
     } else {
         None
     };
-    let text = tooltip_text_with_ip(&stats, suffix.as_deref());
+    let text = tooltip_text(&stats, suffix.as_deref(), pomodoro.as_deref());
     if let Some(tray) = app.tray_by_id("countdown") {
         let _ = tray.set_tooltip(Some(text));
     }
 }
 
-fn tooltip_text_with_ip(stats: &calculator::CountdownStats, suffix: Option<&str>) -> String {
+fn tooltip_text(
+    stats: &calculator::CountdownStats,
+    suffix: Option<&str>,
+    pomodoro: Option<&str>,
+) -> String {
     let title = if stats.schedule.show_ip {
         format!("我要第一个溜 {}", suffix.unwrap_or("—"))
     } else {
         "我要第一个溜".to_string()
     };
     let mut lines = vec![title];
+    if let Some(line) = pomodoro {
+        lines.push(line.to_string());
+    }
     let seconds = stats.remaining_seconds;
     let text = match stats.status {
         "after_work" => String::new(),
@@ -229,7 +298,7 @@ mod tests {
             NaiveDateTime::parse_from_str(timestamp, "%Y-%m-%d %H:%M:%S").unwrap(),
         )
         .unwrap();
-        tooltip_text_with_ip(&stats, None)
+        tooltip_text(&stats, None, None)
     }
 
     #[test]
@@ -238,14 +307,39 @@ mod tests {
         let now =
             NaiveDateTime::parse_from_str("2026-11-13 18:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
         let stats = calculator::calculate(&config, now).unwrap();
-        assert_eq!(tooltip_text_with_ip(&stats, Some("123")), "我要第一个溜");
+        assert_eq!(tooltip_text(&stats, Some("123"), None), "我要第一个溜");
         config.show_ip = true;
         let stats = calculator::calculate(&config, now).unwrap();
+        assert_eq!(tooltip_text(&stats, Some("123"), None), "我要第一个溜 123");
+        assert_eq!(tooltip_text(&stats, None, None), "我要第一个溜 —");
+    }
+
+    #[test]
+    fn pomodoro_tooltip_counts_down_and_keeps_paused_time() {
+        let running = PomodoroTooltip {
+            phase: PomodoroPhase::Focus,
+            clock: PomodoroClock::Deadline(61_000),
+        };
+        assert_eq!(running.line(0).as_deref(), Some("番茄钟 · 专注 01:01"));
+        assert_eq!(running.line(60_999).as_deref(), Some("番茄钟 · 专注 00:01"));
+        assert_eq!(running.line(61_000), None);
+
+        let paused: PomodoroTooltip = serde_json::from_value(serde_json::json!({
+            "phase": "break",
+            "clock": { "kind": "paused", "milliseconds": 25_100 }
+        }))
+        .unwrap();
+        let line = paused.line(99_000);
+        assert_eq!(line.as_deref(), Some("番茄钟 · 休息 00:26（已暂停）"));
+        let stats = calculator::calculate(
+            &config::WorkConfig::default(),
+            NaiveDateTime::parse_from_str("2026-11-13 18:00:00", "%Y-%m-%d %H:%M:%S").unwrap(),
+        )
+        .unwrap();
         assert_eq!(
-            tooltip_text_with_ip(&stats, Some("123")),
-            "我要第一个溜 123"
+            tooltip_text(&stats, None, line.as_deref()),
+            "我要第一个溜\n番茄钟 · 休息 00:26（已暂停）"
         );
-        assert_eq!(tooltip_text_with_ip(&stats, None), "我要第一个溜 —");
     }
 
     #[test]

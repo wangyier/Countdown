@@ -1,26 +1,60 @@
 import { validateSchedule, formatCountdown, STATUS_DETAILS, miniDisplay } from "./time.js";
 import { createPreviewBridge } from "./preview.js";
 import { attachWindowDrag, attachMiniDrag } from "./drag.js";
+import { Pomodoro, POMODORO_STORAGE_KEY, formatPomodoro } from "./pomodoro.js";
 
 const $ = (selector) => document.querySelector(selector);
 const desktop = Boolean(window.__TAURI__?.core?.invoke);
 const dialog = $("#settings-dialog");
 const form = $("#settings-form");
+const pomodoroDialog = $("#pomodoro-settings");
+const pomodoroForm = $("#pomodoro-form");
 const timeKeys = ["start_time", "end_time", "lunch_start_time", "lunch_end_time", "reminder_time"];
 const toggleKeys = ["autostart_enabled", "always_on_top", "reminder_enabled", "show_ip"];
 let invoke;
 let config;
 let info;
+let workMini;
+let activeView = "work";
+let lastTrayTimer;
+let traySync = Promise.resolve();
 let syncing = false;
 let pendingSync = false;
 let saving = false;
 let switchingMode = false;
+let miniMenuReturnFocus;
 let noticeTimeout;
 let lastSyncTime = 0;
 let lastInfoTime = 0;
 let connectionError = false;
 let stopped = false;
 const unlisteners = [];
+
+function loadPomodoro() {
+  try { return new Pomodoro(JSON.parse(localStorage.getItem(POMODORO_STORAGE_KEY))); }
+  catch { return new Pomodoro(); }
+}
+
+const pomodoro = loadPomodoro();
+
+function savePomodoro() {
+  try { localStorage.setItem(POMODORO_STORAGE_KEY, JSON.stringify(pomodoro.saved)); }
+  catch { notify("番茄钟无法保存，请检查应用存储。"); }
+}
+
+function syncTrayPomodoro() {
+  if (!desktop || !invoke) return;
+  const timer = pomodoro.active ? {
+    phase: pomodoro.phase,
+    clock: pomodoro.running
+      ? { kind: "deadline", milliseconds: pomodoro.deadline }
+      : { kind: "paused", milliseconds: pomodoro.remaining },
+  } : null;
+  const signature = JSON.stringify(timer);
+  if (signature === lastTrayTimer) return;
+  lastTrayTimer = signature;
+  traySync = traySync.then(() => invoke("set_pomodoro_tooltip", { timer })).catch(report);
+}
 
 function notify(message, persistent = false) {
   clearTimeout(noticeTimeout);
@@ -34,6 +68,103 @@ function notify(message, persistent = false) {
 function report(error) {
   notify(error instanceof Error ? error.message : String(error));
 }
+
+function selectView(view) {
+  activeView = view;
+  for (const name of ["work", "pomodoro"]) {
+    $(`#${name}-view`).hidden = name !== view;
+    $(`#${name}-view-button`).setAttribute("aria-pressed", String(name === view));
+  }
+  const label = view === "pomodoro" ? "番茄钟设置" : "打开设置";
+  $("#settings-button").setAttribute("aria-label", label);
+  $("#settings-button").title = label;
+  tickPomodoro();
+}
+
+function renderMini() {
+  const timer = pomodoro.active;
+  const focus = pomodoro.phase === "focus";
+  const value = timer ? {
+    status: `pomodoro-${pomodoro.phase}`,
+    label: focus ? "番茄钟 · 专注" : "番茄钟 · 休息",
+    time: formatPomodoro(pomodoro.remaining),
+    words: false,
+    mark: pomodoro.running ? "计时中" : "已暂停",
+    progress: pomodoro.progress,
+    progressLabel: "当前番茄钟阶段进度",
+  } : workMini;
+  if (!value) return;
+  $("#mini-widget").dataset.status = value.status;
+  $("#mini-label").textContent = value.label;
+  $("#mini-time").textContent = value.time;
+  $("#mini-time").classList.toggle("words", value.words);
+  $("#mini-time").setAttribute("aria-label", value.timeLabel ?? value.time);
+  $("#mini-percent").textContent = value.mark;
+  $("#mini-fill").style.strokeDashoffset = String(175.929 * (1 - value.progress / 100));
+  $("#mini-ring").setAttribute("aria-label", value.progressLabel);
+  $("#mini-ring").setAttribute("aria-valuenow", value.progress.toFixed(1));
+}
+
+function renderPomodoro(now) {
+  const focus = pomodoro.phase === "focus";
+  const phase = $("#pomodoro-phase");
+  const phaseLabel = focus ? "专注时间" : "休息时间";
+  if (phase.textContent !== phaseLabel) phase.textContent = phaseLabel;
+  $("#pomodoro-clock").dataset.phase = pomodoro.phase;
+  $("#pomodoro-clock").style.setProperty("--elapsed", `${pomodoro.progress / 100}turn`);
+  $("#pomodoro-time").textContent = formatPomodoro(pomodoro.remaining);
+  $("#pomodoro-start").textContent = pomodoro.running ? "暂停"
+    : pomodoro.active ? "继续" : focus ? "开始专注" : "开始休息";
+  $("#pomodoro-rounds").textContent = `今日完成 ${pomodoro.todayRounds(now)} 轮`;
+  $("#pomodoro-next").textContent = focus ? `下一段 · 休息 ${pomodoro.minutes.break} 分钟`
+    : `下一段 · 专注 ${pomodoro.minutes.focus} 分钟`;
+  renderMini();
+  syncTrayPomodoro();
+}
+
+function tickPomodoro() {
+  const now = Date.now();
+  if (pomodoro.update(now) === "focus") savePomodoro();
+  renderPomodoro(now);
+}
+
+function openPomodoroSettings() {
+  if (pomodoroDialog.open || dialog.open || switchingMode || saving) return;
+  tickPomodoro();
+  for (const phase of ["focus", "break"]) {
+    pomodoroForm.elements.namedItem(phase).value = pomodoro.minutes[phase];
+  }
+  $("#pomodoro-settings-note").hidden = !pomodoro.active;
+  pomodoroDialog.showModal();
+}
+
+$("#work-view-button").addEventListener("click", () => selectView("work"));
+$("#pomodoro-view-button").addEventListener("click", () => selectView("pomodoro"));
+function togglePomodoro() {
+  const now = Date.now();
+  if (pomodoro.toggle(now) === "focus") savePomodoro();
+  renderPomodoro(now);
+}
+$("#pomodoro-start").addEventListener("click", togglePomodoro);
+$("#pomodoro-reset").addEventListener("click", () => {
+  tickPomodoro();
+  pomodoro.reset();
+  tickPomodoro();
+});
+$("#pomodoro-settings-close").addEventListener("click", () => pomodoroDialog.close());
+$("#pomodoro-settings-cancel").addEventListener("click", () => pomodoroDialog.close());
+pomodoroForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  tickPomodoro();
+  const { elements } = pomodoroForm;
+  if (!pomodoro.setMinutes({
+    focus: elements.namedItem("focus").valueAsNumber,
+    break: elements.namedItem("break").valueAsNumber,
+  })) return;
+  pomodoroDialog.close();
+  savePomodoro();
+  tickPomodoro();
+});
 
 if (desktop) {
   $("#widget").setAttribute("data-window-drag-region", "");
@@ -55,7 +186,7 @@ function renderConfig(value) {
   $("#widget").hidden = Boolean(value.mini_mode);
   $("#mini-widget").hidden = !value.mini_mode;
   if (value.mini_mode && dialog.open) dialog.close();
-  if (!value.mini_mode) { $("#mini-menu").hidden = true; $("#mini-notice").hidden = true; }
+  if (!value.mini_mode) { closeMiniMenu(false); $("#mini-notice").hidden = true; }
   $("#ip-label").hidden = !value.show_ip;
   const pin = $("#pin-button");
   const label = value.always_on_top ? "取消置顶" : "窗口置顶";
@@ -86,14 +217,15 @@ function renderStats(value) {
     : value.guandan_remaining_seconds === 0 ? "今日已结束" : `目标 ${value.schedule.lunch_start_time}`;
   const progress = Math.min(100, Math.max(0, value.progress_percent));
   const mini = miniDisplay(value);
-  $("#mini-widget").dataset.status = value.status;
-  $("#mini-label").textContent = mini.label;
-  $("#mini-time").textContent = mini.time;
-  $("#mini-time").classList.toggle("words", mini.words);
-  $("#mini-time").setAttribute("aria-label", mini.words ? mini.time : `${parts[0]}小时${parts[1]}分钟`);
-  $("#mini-percent").textContent = `${Math.round(progress)}%`;
-  $("#mini-fill").style.strokeDashoffset = String(175.929 * (1 - progress / 100));
-  $("#mini-ring").setAttribute("aria-valuenow", progress.toFixed(1));
+  workMini = {
+    ...mini,
+    status: value.status,
+    timeLabel: mini.words ? mini.time : `${parts[0]}小时${parts[1]}分钟`,
+    mark: `${Math.round(progress)}%`,
+    progress,
+    progressLabel: "有效工时完成比例",
+  };
+  renderMini();
   $("#progress-value").replaceChildren(document.createTextNode(progress.toFixed(1)), Object.assign(document.createElement("small"), { textContent: "%" }));
   $("#progress-fill").style.width = `${progress}%`;
   $("#progress").setAttribute("aria-valuenow", progress.toFixed(1));
@@ -131,7 +263,8 @@ async function sync() {
   } catch (error) {
     if (!connectionError) { connectionError = true; notify(`同步失败：${String(error)}`, true); }
     $("#status-label").textContent = "等待同步";
-    $("#mini-label").textContent = "等待同步";
+    if (workMini) workMini.label = "等待同步";
+    if (!pomodoro.active) $("#mini-label").textContent = "等待同步";
   } finally {
     syncing = false;
     if (pendingSync && !stopped) { pendingSync = false; void sync(); }
@@ -139,7 +272,7 @@ async function sync() {
 }
 
 async function openSettings() {
-  if (dialog.open || saving || !invoke) return;
+  if (dialog.open || pomodoroDialog.open || saving || switchingMode || !invoke || $("#settings-button").disabled) return;
   $("#settings-button").disabled = true;
   try {
     if (config?.mini_mode) await setMiniMode(false);
@@ -158,7 +291,7 @@ async function openSettings() {
 async function setMiniMode(enabled) {
   if (saving || switchingMode || !invoke) return;
   switchingMode = true;
-  $("#mini-menu").hidden = true;
+  closeMiniMenu();
   try {
     renderConfig(await invoke("set_mini_mode", { enabled }));
     await sync();
@@ -169,16 +302,49 @@ const expand = () => { void setMiniMode(false).catch(report); };
 $("#mini-expand").addEventListener("click", expand);
 $("#mini-menu-expand").addEventListener("click", expand);
 $("#mini-widget").addEventListener("dblclick", (event) => { if (!event.target.closest("button, [data-no-drag]")) expand(); });
-function openMiniMenu(event) { event.preventDefault(); $("#mini-menu").hidden = false; }
+function openMiniMenu(event) {
+  event.preventDefault();
+  const menu = $("#mini-menu");
+  if (!menu.hidden) return;
+  const widget = $("#mini-widget");
+  miniMenuReturnFocus = widget.contains(document.activeElement) ? document.activeElement : widget;
+  menu.hidden = false;
+  $("#mini-menu-expand").focus();
+  $("#mini-expand").inert = true;
+}
+
+function closeMiniMenu(restoreFocus = true) {
+  const menu = $("#mini-menu");
+  if (menu.hidden) return;
+  menu.hidden = true;
+  $("#mini-expand").inert = false;
+  if (restoreFocus) miniMenuReturnFocus?.focus();
+  miniMenuReturnFocus = undefined;
+}
+
+function toggleMiniModeFromTray() {
+  if (pomodoroDialog.open) return;
+  if (dialog.open) {
+    if (!saving) {
+      const message = $("#settings-error");
+      message.textContent = "请先保存或取消当前设置，再切换迷你模式。";
+      message.hidden = false;
+    }
+    return;
+  }
+  if (config && !$("#settings-button").disabled) {
+    void setMiniMode(!config.mini_mode).catch(report);
+  }
+}
 $("#mini-widget").addEventListener("contextmenu", openMiniMenu);
 $("#mini-widget").addEventListener("keydown", (event) => {
   if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) openMiniMenu(event);
   else if (event.key === "Enter" && event.target === $("#mini-widget")) expand();
 });
-$("#mini-menu-close").addEventListener("click", () => { $("#mini-menu").hidden = true; });
+$("#mini-menu-close").addEventListener("click", () => closeMiniMenu());
 $("#mini-menu-settings").addEventListener("click", openSettings);
-$("#mini-menu-pin").addEventListener("click", () => { $("#pin-button").click(); $("#mini-menu").hidden = true; });
-$("#mini-menu-hide").addEventListener("click", () => { $("#mini-menu").hidden = true; void hide(); });
+$("#mini-menu-pin").addEventListener("click", () => { closeMiniMenu(); $("#pin-button").click(); });
+$("#mini-menu-hide").addEventListener("click", () => { closeMiniMenu(); void hide(); });
 $("#mini-notice").addEventListener("click", () => { $("#mini-notice").hidden = true; });
 
 function closeSettings() { if (!saving) dialog.close(); }
@@ -186,7 +352,10 @@ function updateReminderInput() {
   form.elements.namedItem("reminder_time").disabled = saving || !form.elements.namedItem("reminder_enabled").checked;
 }
 form.elements.namedItem("reminder_enabled").addEventListener("change", updateReminderInput);
-$("#settings-button").addEventListener("click", openSettings);
+$("#settings-button").addEventListener("click", () => {
+  if (activeView === "pomodoro") openPomodoroSettings();
+  else void openSettings();
+});
 $("#close-settings").addEventListener("click", closeSettings);
 $("#cancel-settings").addEventListener("click", closeSettings);
 dialog.addEventListener("cancel", (event) => { if (saving) event.preventDefault(); });
@@ -237,8 +406,8 @@ async function hide() {
 }
 $("#hide-button").addEventListener("click", hide);
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !$("#mini-menu").hidden) { event.preventDefault(); $("#mini-menu").hidden = true; return; }
-  if (event.key === "Escape" && !dialog.open) { event.preventDefault(); void hide(); }
+  if (event.key === "Escape" && !$("#mini-menu").hidden) { event.preventDefault(); closeMiniMenu(); return; }
+  if (event.key === "Escape" && !dialog.open && !pomodoroDialog.open) { event.preventDefault(); void hide(); }
 });
 $("#footer-label").addEventListener("click", () => {
   if (info?.warnings?.length) notify($("#footer-label").title);
@@ -246,8 +415,10 @@ $("#footer-label").addEventListener("click", () => {
 $("#footer-label").addEventListener("keydown", (event) => {
   if (event.key === "Enter" || event.key === " ") { event.preventDefault(); $("#footer-label").click(); }
 });
-document.addEventListener("visibilitychange", () => { if (!document.hidden) void sync(); });
-window.addEventListener("focus", () => { void sync(); });
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) { tickPomodoro(); void sync(); }
+});
+window.addEventListener("focus", () => { tickPomodoro(); void sync(); });
 
 async function start() {
   try {
@@ -255,15 +426,22 @@ async function start() {
     if (desktop) {
       const listen = window.__TAURI__.event.listen;
       unlisteners.push(await listen("open-settings", openSettings));
-      unlisteners.push(await listen("widget-shown", () => { void sync(); }));
+      unlisteners.push(await listen("toggle-mini-mode", toggleMiniModeFromTray));
+      unlisteners.push(await listen("toggle-pomodoro", () => {
+        tickPomodoro();
+        togglePomodoro();
+      }));
+      unlisteners.push(await listen("widget-shown", () => { tickPomodoro(); void sync(); }));
       unlisteners.push(await listen("config-changed", () => { lastInfoTime = 0; void sync(); }));
       unlisteners.push(await listen("app-error", ({ payload }) => notify(payload)));
     }
+    syncTrayPomodoro();
     await sync();
   } catch (error) { notify(`启动失败：${String(error)}`, true); }
 }
 
 const interval = setInterval(() => {
+  tickPomodoro();
   if (document.hidden) return;
   if (lastSyncTime && Date.now() - lastSyncTime > 5000) {
     $("#status-label").textContent = "等待同步";
@@ -275,4 +453,5 @@ window.addEventListener("pagehide", () => {
   clearInterval(interval);
   for (const unlisten of unlisteners) unlisten();
 });
+tickPomodoro();
 void start();

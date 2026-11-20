@@ -36,11 +36,16 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 h1 { font-size: 13px; font-weight: 600; margin: 0; white-space: nowrap; }
 h1 span { display: none; }
 .window-actions { display: flex; gap: 1px; }
+.widget-views { display: flex; gap: 4px; padding: 3px; margin-top: 12px; border-radius: 10px; background: #10171075; }
+.widget-views button { flex: 1; padding: 6px 8px; border: 0; border-radius: 7px; background: transparent; color: #a7b19d; font-size: 11px; }
+.widget-views button:hover { color: #eceee7; }
+.widget-views button[aria-pressed="true"] { background: #364130; color: #eff5e7; }
+.widget-view { display: flex; flex: 1; flex-direction: column; min-height: 0; }
 .icon-button { width: 26px; height: 28px; background: transparent; border: 0; border-radius: 7px; color: #8c9486; display: grid; place-items: center; padding: 0; }
 .icon-button svg { width: 15px; height: 15px; }
 .icon-button:hover { background: #ffffff0b; color: #eff5e7; }
 .icon-button[aria-pressed="true"] { color: var(--accent); }
-.day-heading { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; font-size: 11px; color: #acb1a5; height: 22px; }
+.day-heading { display: flex; justify-content: space-between; align-items: center; margin-top: 13px; font-size: 11px; color: #acb1a5; height: 22px; }
 .status { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #d0ed9726; color: var(--accent); border-radius: 20px; padding: 3px 8px; font-size: 10px; }
 .status i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; box-shadow: 0 0 6px #d0ed9733; }
 .countdown-section { margin-top: 17px; }
@@ -85,6 +90,16 @@ h2 { font-size: 20px; font-weight: 500; margin: 7px 0 0; letter-spacing: .2px; }
 .time-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 13px 12px; margin-bottom: 14px; }
 .time-grid label { display: flex; flex-direction: column; gap: 7px; font-size: 10px; color: #a7b19d; }
 input[type="time"] { min-width: 0; width: 100%; background: #151b16; border: 1px solid #ffffff12; border-radius: 7px; padding: 8px 7px; color: #e3edd7; font-family: var(--mono); font-size: 13px; }
+.pomodoro-fields { margin-top: 18px; }
+.pomodoro-fields input { min-width: 0; width: 100%; background: #151b16; border: 1px solid #ffffff12; border-radius: 7px; padding: 8px 7px; color: #e3edd7; font: 13px var(--mono); }
+.pomodoro-clock { --elapsed: 0turn; --phase-color: var(--accent); width: 170px; height: 170px; margin: auto auto 20px; border-radius: 50%; padding: 4px; background: conic-gradient(var(--phase-color) var(--elapsed), #3c4638 0); }
+.pomodoro-clock[data-phase="break"] { --phase-color: #e5c38e; }
+.pomodoro-face { height: 100%; display: grid; place-content: center; justify-items: center; gap: 3px; border-radius: 50%; background: #21291f; }
+#pomodoro-phase { color: #bac4b0; font-size: 12px; }
+#pomodoro-time { color: var(--phase-color); font: 39px var(--mono); letter-spacing: -2px; font-variant-numeric: tabular-nums; }
+.pomodoro-actions { display: flex; justify-content: center; gap: 8px; }
+.pomodoro-actions .primary-button { flex: 0 0 108px; justify-content: center; }
+.pomodoro-footer { margin-top: auto; color: #a7b19d; font-size: 11px; gap: 8px; }
 .switch-row { display: flex; align-items: center; justify-content: space-between; padding: 11px 0; border-bottom: 1px solid #ffffff08; gap: 12px; font-size: 11px; }
 .switch-row small { display: block; font-size: 9px; color: #87927d; margin-top: 4px; }
 .switch-row input[type="time"] { width: 110px; }
@@ -119,6 +134,10 @@ body[data-mini="true"] { width: 220px; height: 104px; }
 .mini-widget[data-status="lunch_break"] .mini-ring-button { color: #e5c38e; }
 .mini-widget[data-status="lunch_break"] .mini-label i { background: #e5c38e; }
 .mini-widget[data-status="after_work"] .mini-label { color: var(--accent); }
+.mini-widget[data-status="pomodoro-break"] .mini-ring-button,
+.mini-widget[data-status="pomodoro-break"] .mini-label { color: #e5c38e; }
+.mini-widget[data-status="pomodoro-break"] .mini-label i { background: #e5c38e; }
+.mini-widget[data-status^="pomodoro"] #mini-percent { font-family: inherit; font-size: 10px; }
 .mini-menu { position: absolute; inset: 0; padding: 7px 10px; background: #293125; border-radius: inherit; z-index: 2; }
 .mini-menu-heading { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: #abb79e; }
 .mini-menu button { border: 0; border-radius: 6px; background: #ffffff0c; color: #e5eddd; font-size: 10px; padding: 6px 3px; white-space: nowrap; }

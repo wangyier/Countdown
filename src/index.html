@@ -31,27 +31,51 @@
         </div>
       </header>
 
-      <section class="day-heading"><span id="date-label">正在读取日期</span><span class="status" id="status" role="status"><i></i><span id="status-label">连接中</span></span></section>
+      <nav class="widget-views" aria-label="挂件页面">
+        <button id="work-view-button" aria-controls="work-view" aria-pressed="true">下班倒计时</button>
+        <button id="pomodoro-view-button" aria-controls="pomodoro-view" aria-pressed="false">番茄钟</button>
+      </nav>
 
-      <section class="countdown-section" aria-label="下班倒计时">
-        <p class="eyebrow" id="countdown-label">距离下班还有</p>
-        <div class="digits" id="countdown" role="timer" aria-label="正在加载"><span id="hours">--</span><b>:</b><span id="minutes">--</span><b>:</b><span id="seconds">--</span></div>
-        <div class="digit-labels" aria-hidden="true"><span>小时</span><span>分钟</span><span>秒</span></div>
-        <p class="motto" id="motto">把时间留一点给生活。</p>
+      <div id="work-view" class="widget-view">
+        <section class="day-heading"><span id="date-label">正在读取日期</span><span class="status" id="status" role="status"><i></i><span id="status-label">连接中</span></span></section>
+
+        <section class="countdown-section" aria-label="下班倒计时">
+          <p class="eyebrow" id="countdown-label">距离下班还有</p>
+          <div class="digits" id="countdown" role="timer" aria-label="正在加载"><span id="hours">--</span><b>:</b><span id="minutes">--</span><b>:</b><span id="seconds">--</span></div>
+          <div class="digit-labels" aria-hidden="true"><span>小时</span><span>分钟</span><span>秒</span></div>
+          <p class="motto" id="motto">把时间留一点给生活。</p>
+        </section>
+
+        <section class="guandan-card" id="guandan-card" aria-label="开饭倒计时">
+          <div><h2>开饭倒计时 <span aria-hidden="true">🍚</span></h2><p>按时吃饭，好好休息</p></div>
+          <div class="guandan-values"><strong id="guandan-countdown" role="timer" aria-label="正在加载">--:--:--</strong><span id="guandan-status">正在同步</span></div>
+        </section>
+
+        <section class="progress-section" aria-label="今日工时进度">
+          <div class="section-label"><span>今日进度</span><span id="progress-value">--<small>%</small></span></div>
+          <div class="progress-track" id="progress" role="progressbar" aria-label="今日工时完成比例" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="progress-fill"></div></div>
+        </section>
+
+        <div class="reminder"><span class="reminder-icon"><svg><use href="#icon-bell"/></svg></span><span>好好吃饭，才有力气下班</span><span class="reminder-time" id="reminder-time">正在同步</span></div>
+        <footer><span id="ip-label" title="仅显示本地私有 IPv4 地址末段" hidden>IP · —</span><span id="footer-label" data-no-drag>准时收工，生活开场 <span class="footer-star">✳</span></span></footer>
+      </div>
+
+      <section id="pomodoro-view" class="widget-view" aria-label="番茄钟" hidden>
+        <div class="pomodoro-clock" id="pomodoro-clock">
+          <div class="pomodoro-face">
+            <span id="pomodoro-phase" role="status">专注时间</span>
+            <span id="pomodoro-time" role="timer">25:00</span>
+          </div>
+        </div>
+        <div class="pomodoro-actions">
+          <button id="pomodoro-start" class="primary-button">开始专注</button>
+          <button id="pomodoro-reset" class="secondary-button">重置</button>
+        </div>
+        <footer class="pomodoro-footer">
+          <span id="pomodoro-rounds">今日完成 0 轮</span>
+          <span id="pomodoro-next">下一段 · 休息 5 分钟</span>
+        </footer>
       </section>
-
-      <section class="guandan-card" id="guandan-card" aria-label="开饭倒计时">
-        <div><h2>开饭倒计时 <span aria-hidden="true">🍚</span></h2><p>按时吃饭，好好休息</p></div>
-        <div class="guandan-values"><strong id="guandan-countdown" role="timer" aria-label="正在加载">--:--:--</strong><span id="guandan-status">正在同步</span></div>
-      </section>
-
-      <section class="progress-section" aria-label="今日工时进度">
-        <div class="section-label"><span>今日进度</span><span id="progress-value">--<small>%</small></span></div>
-        <div class="progress-track" id="progress" role="progressbar" aria-label="今日工时完成比例" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="progress-fill"></div></div>
-      </section>
-
-      <div class="reminder"><span class="reminder-icon"><svg><use href="#icon-bell"/></svg></span><span>好好吃饭，才有力气下班</span><span class="reminder-time" id="reminder-time">正在同步</span></div>
-      <footer><span id="ip-label" title="仅显示本地私有 IPv4 地址末段" hidden>IP · —</span><span id="footer-label" data-no-drag>准时收工，生活开场 <span class="footer-star">✳</span></span></footer>
       <p id="notice" class="notice" role="status" data-no-drag hidden></p>
     </main>
 
@@ -88,6 +112,24 @@
         <p class="calendar-note" id="schedule-note">每天按设置的上下班和午休时间计算</p>
         <p class="form-error" id="settings-error" role="alert" hidden></p>
         <div class="dialog-actions"><button type="button" class="secondary-button" id="cancel-settings">取消</button><button type="submit" class="primary-button" id="save-button">保存设置 <span aria-hidden="true">↗</span></button></div>
+      </form>
+    </dialog>
+
+    <dialog id="pomodoro-settings" aria-labelledby="pomodoro-settings-title">
+      <form id="pomodoro-form">
+        <div class="dialog-heading">
+          <h2 id="pomodoro-settings-title">番茄钟设置</h2>
+          <button type="button" id="pomodoro-settings-close" class="icon-button" aria-label="关闭番茄钟设置"><svg><use href="#icon-close"/></svg></button>
+        </div>
+        <div class="time-grid pomodoro-fields">
+          <label>专注（分钟）<input type="number" name="focus" min="1" max="120" required /></label>
+          <label>休息（分钟）<input type="number" name="break" min="1" max="60" required /></label>
+        </div>
+        <p class="calendar-note" id="pomodoro-settings-note" hidden>更改当前阶段的时长会重置这段计时。</p>
+        <div class="dialog-actions">
+          <button type="button" id="pomodoro-settings-cancel" class="secondary-button">取消</button>
+          <button type="submit" class="primary-button">保存</button>
+        </div>
       </form>
     </dialog>
   </body>
