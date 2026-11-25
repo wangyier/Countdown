@@ -22,6 +22,7 @@ let syncing = false;
 let pendingSync = false;
 let saving = false;
 let switchingMode = false;
+let modeRevision = 0;
 let miniMenuReturnFocus;
 let noticeTimeout;
 let lastSyncTime = 0;
@@ -41,6 +42,8 @@ function savePomodoro() {
   try { localStorage.setItem(POMODORO_STORAGE_KEY, JSON.stringify(pomodoro.saved)); }
   catch { notify("番茄钟无法保存，请检查应用存储。"); }
 }
+
+savePomodoro();
 
 function syncTrayPomodoro() {
   if (!desktop || !invoke) return;
@@ -86,7 +89,7 @@ function renderMini() {
   const focus = pomodoro.phase === "focus";
   const value = timer ? {
     status: `pomodoro-${pomodoro.phase}`,
-    label: focus ? "番茄钟 · 专注" : "番茄钟 · 休息",
+    label: focus ? "番茄钟 · 专注" : pomodoro.longBreak ? "番茄钟 · 长休息" : "番茄钟 · 短休息",
     time: formatPomodoro(pomodoro.remaining),
     words: false,
     mark: pomodoro.running ? "计时中" : "已暂停",
@@ -108,7 +111,7 @@ function renderMini() {
 function renderPomodoro(now) {
   const focus = pomodoro.phase === "focus";
   const phase = $("#pomodoro-phase");
-  const phaseLabel = focus ? "专注时间" : "休息时间";
+  const phaseLabel = focus ? "专注时间" : pomodoro.longBreak ? "长休息" : "短休息";
   if (phase.textContent !== phaseLabel) phase.textContent = phaseLabel;
   $("#pomodoro-clock").dataset.phase = pomodoro.phase;
   $("#pomodoro-clock").style.setProperty("--elapsed", `${pomodoro.progress / 100}turn`);
@@ -116,7 +119,7 @@ function renderPomodoro(now) {
   $("#pomodoro-start").textContent = pomodoro.running ? "暂停"
     : pomodoro.active ? "继续" : focus ? "开始专注" : "开始休息";
   $("#pomodoro-rounds").textContent = `今日完成 ${pomodoro.todayRounds(now)} 轮`;
-  $("#pomodoro-next").textContent = focus ? `下一段 · 休息 ${pomodoro.minutes.break} 分钟`
+  $("#pomodoro-next").textContent = focus ? `下一段 · ${pomodoro.nextLongBreak ? "长休息" : "短休息"} ${pomodoro.minutes[pomodoro.nextLongBreak ? "longBreak" : "break"]} 分钟`
     : `下一段 · 专注 ${pomodoro.minutes.focus} 分钟`;
   renderMini();
   syncTrayPomodoro();
@@ -131,9 +134,11 @@ function tickPomodoro() {
 function openPomodoroSettings() {
   if (pomodoroDialog.open || dialog.open || switchingMode || saving) return;
   tickPomodoro();
-  for (const phase of ["focus", "break"]) {
+  for (const phase of ["focus", "break", "longBreak"]) {
     pomodoroForm.elements.namedItem(phase).value = pomodoro.minutes[phase];
   }
+  pomodoroForm.elements.namedItem("interval").value = pomodoro.interval;
+  for (const key of ["autoBreak", "autoFocus"]) pomodoroForm.elements.namedItem(key).checked = pomodoro[key];
   $("#pomodoro-settings-note").hidden = !pomodoro.active;
   pomodoroDialog.showModal();
 }
@@ -160,7 +165,11 @@ pomodoroForm.addEventListener("submit", (event) => {
   if (!pomodoro.setMinutes({
     focus: elements.namedItem("focus").valueAsNumber,
     break: elements.namedItem("break").valueAsNumber,
+    longBreak: elements.namedItem("longBreak").valueAsNumber,
   })) return;
+  pomodoro.interval = elements.namedItem("interval").valueAsNumber;
+  pomodoro.autoBreak = elements.namedItem("autoBreak").checked;
+  pomodoro.autoFocus = elements.namedItem("autoFocus").checked;
   pomodoroDialog.close();
   savePomodoro();
   tickPomodoro();
@@ -181,9 +190,12 @@ if (desktop) {
 }
 
 function renderConfig(value) {
+  const widget = $("#widget");
+  if (value.mini_mode) widget.classList.remove("widget-expanded");
+  else if (config?.mini_mode) widget.classList.add("widget-expanded");
   config = value;
   document.body.dataset.mini = String(Boolean(value.mini_mode));
-  $("#widget").hidden = Boolean(value.mini_mode);
+  widget.hidden = Boolean(value.mini_mode);
   $("#mini-widget").hidden = !value.mini_mode;
   if (value.mini_mode && dialog.open) dialog.close();
   if (!value.mini_mode) { closeMiniMenu(false); $("#mini-notice").hidden = true; }
@@ -250,6 +262,7 @@ async function sync() {
   if (!invoke || stopped) return;
   if (syncing) { pendingSync = true; return; }
   syncing = true;
+  const revision = modeRevision;
   try {
     const needsInfo = Date.now() - lastInfoTime > 30000;
     const values = await Promise.all([
@@ -257,6 +270,7 @@ async function sync() {
       needsInfo ? invoke("get_app_info") : Promise.resolve(info),
     ]);
     if (values[1]) { info = values[1]; if (needsInfo) lastInfoTime = Date.now(); }
+    if (revision !== modeRevision) { pendingSync = true; return; }
     renderStats(values[0]);
     lastSyncTime = Date.now();
     if (connectionError) { connectionError = false; notify("倒计时已重新同步"); }
@@ -288,17 +302,26 @@ async function openSettings() {
   finally { $("#settings-button").disabled = false; }
 }
 
-async function setMiniMode(enabled) {
+async function setMiniMode(enabled, expandedView) {
   if (saving || switchingMode || !invoke) return;
   switchingMode = true;
   closeMiniMenu();
+  if (desktop && !enabled) document.body.dataset.expanding = "";
   try {
-    renderConfig(await invoke("set_mini_mode", { enabled }));
-    await sync();
-  } finally { switchingMode = false; }
+    const next = await invoke("set_mini_mode", { enabled });
+    modeRevision += 1;
+    if (expandedView) selectView(expandedView);
+    renderConfig(next);
+    void sync();
+  } finally {
+    delete document.body.dataset.expanding;
+    switchingMode = false;
+  }
 }
 $("#mini-button").addEventListener("click", () => { void setMiniMode(true).catch(report); });
-const expand = () => { void setMiniMode(false).catch(report); };
+function expand() {
+  void setMiniMode(false, pomodoro.active ? "pomodoro" : undefined).catch(report);
+}
 $("#mini-expand").addEventListener("click", expand);
 $("#mini-menu-expand").addEventListener("click", expand);
 $("#mini-widget").addEventListener("dblclick", (event) => { if (!event.target.closest("button, [data-no-drag]")) expand(); });
@@ -332,9 +355,9 @@ function toggleMiniModeFromTray() {
     }
     return;
   }
-  if (config && !$("#settings-button").disabled) {
-    void setMiniMode(!config.mini_mode).catch(report);
-  }
+  if (!config || $("#settings-button").disabled) return;
+  if (config.mini_mode) expand();
+  else void setMiniMode(true).catch(report);
 }
 $("#mini-widget").addEventListener("contextmenu", openMiniMenu);
 $("#mini-widget").addEventListener("keydown", (event) => {

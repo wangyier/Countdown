@@ -1,5 +1,5 @@
 export const POMODORO_STORAGE_KEY = "countdown-pomodoro";
-const defaults = { focus: 25, break: 5 };
+const defaults = { focus: 25, break: 5, longBreak: 15 };
 
 function dayKey(timestamp) {
   const date = new Date(timestamp);
@@ -17,25 +17,35 @@ export class Pomodoro {
     this.setMinutes(saved?.minutes);
     this.day = typeof saved?.day === "string" ? saved.day : "";
     this.rounds = Number.isSafeInteger(saved?.rounds) && saved.rounds >= 0 ? saved.rounds : 0;
+    this.cycle = Number.isSafeInteger(saved?.cycle) && saved.cycle >= 0 ? saved.cycle : 0;
+    this.interval = Number.isInteger(saved?.interval) && saved.interval >= 1 && saved.interval <= 20 ? saved.interval : 4;
+    // Older versions defaulted to manual breaks; migrate that default once.
+    this.autoBreak = saved?.settingsVersion >= 1 ? saved.autoBreak !== false : true;
+    this.autoFocus = saved?.autoFocus === true;
     this.phase = "focus";
+    this.longBreak = false;
     this.reset();
   }
 
-  get duration() { return this.minutes[this.phase] * 60_000; }
+  get duration() { return this.minutes[this.phase === "break" && this.longBreak ? "longBreak" : this.phase] * 60_000; }
   get running() { return this.deadline !== null; }
   get active() { return this.running || this.remaining < this.duration; }
   get progress() { return 100 * (1 - this.remaining / this.duration); }
 
-  get saved() { return { minutes: this.minutes, day: this.day, rounds: this.rounds }; }
+  get saved() { return { settingsVersion: 1, minutes: this.minutes, day: this.day, rounds: this.rounds, cycle: this.cycle, interval: this.interval, autoBreak: this.autoBreak, autoFocus: this.autoFocus }; }
+
+  get nextLongBreak() { return this.cycle + 1 >= this.interval; }
 
   todayRounds(now) { return this.day === dayKey(now) ? this.rounds : 0; }
 
   setMinutes(minutes) {
-    const { focus, break: rest } = minutes ?? {};
+    const { focus, break: rest, longBreak = this.minutes.longBreak } = minutes ?? {};
     if (!Number.isInteger(focus) || focus < 1 || focus > 120 ||
-        !Number.isInteger(rest) || rest < 1 || rest > 60) return false;
-    const reset = this.phase && this.minutes[this.phase] !== minutes[this.phase];
-    this.minutes = { focus, break: rest };
+        !Number.isInteger(rest) || rest < 1 || rest > 60 ||
+        !Number.isInteger(longBreak) || longBreak < 1 || longBreak > 60) return false;
+    const key = this.phase === "break" && this.longBreak ? "longBreak" : this.phase;
+    const reset = key && this.minutes[key] !== { focus, break: rest, longBreak }[key];
+    this.minutes = { focus, break: rest, longBreak };
     if (reset) this.reset();
     return true;
   }
@@ -57,16 +67,23 @@ export class Pomodoro {
 
   update(now) {
     if (!this.running) return null;
-    this.remaining = Math.max(0, Math.min(this.duration, this.deadline - now));
-    if (this.remaining > 0) return null;
-    const finished = this.phase;
-    if (finished === "focus") {
-      const day = dayKey(this.deadline);
-      this.rounds = (this.day === day ? this.rounds : 0) + 1;
-      this.day = day;
+    let completed = null;
+    while (this.running && now >= this.deadline) {
+      const endedAt = this.deadline;
+      const finished = this.phase;
+      if (finished === "focus") {
+        const day = dayKey(endedAt);
+        this.rounds = (this.day === day ? this.rounds : 0) + 1;
+        this.day = day;
+        this.longBreak = this.nextLongBreak;
+        this.cycle = this.longBreak ? 0 : this.cycle + 1;
+        completed = "focus";
+      } else if (!completed) completed = "break";
+      this.phase = finished === "focus" ? "break" : "focus";
+      this.reset();
+      if (finished === "focus" ? this.autoBreak : this.autoFocus) this.deadline = endedAt + this.duration;
     }
-    this.phase = finished === "focus" ? "break" : "focus";
-    this.reset();
-    return finished;
+    if (this.running) this.remaining = Math.max(0, Math.min(this.duration, this.deadline - now));
+    return completed;
   }
 }

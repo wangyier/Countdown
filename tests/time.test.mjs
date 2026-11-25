@@ -6,7 +6,7 @@ import { attachWindowDrag, attachMiniDrag } from "../src/drag.js";
 import { Pomodoro, formatPomodoro } from "../src/pomodoro.js";
 
 test("pomodoro pauses and resumes without counting hidden time twice", () => {
-  const timer = new Pomodoro({ minutes: { focus: 1, break: 1 } });
+  const timer = new Pomodoro({ settingsVersion: 1, autoBreak: false, minutes: { focus: 1, break: 1 } });
   const now = new Date(2026, 10, 20, 9).getTime();
   timer.toggle(now);
   timer.toggle(now + 15_300);
@@ -27,7 +27,7 @@ test("pomodoro pauses and resumes without counting hidden time twice", () => {
 });
 
 test("pomodoro counts by completion date and saves valid durations and rounds", () => {
-  const timer = new Pomodoro();
+  const timer = new Pomodoro({ settingsVersion: 1, autoBreak: false });
   const now = new Date(2026, 10, 20, 23, 58).getTime();
   assert.equal(timer.setMinutes({ focus: 1, break: 2 }), true);
   timer.toggle(now);
@@ -45,6 +45,64 @@ test("pomodoro counts by completion date and saves valid durations and rounds", 
   const restored = new Pomodoro(JSON.parse(JSON.stringify(timer.saved)));
   assert.equal(restored.todayRounds(now), 1);
   assert.equal(restored.remaining, 120_000);
+});
+
+test("pomodoro schedules and persists long breaks independently of daily counts", () => {
+  const now = new Date(2026, 10, 20, 23, 58).getTime();
+  let timer = new Pomodoro({ settingsVersion: 1, autoBreak: false, minutes: { focus: 1, break: 1, longBreak: 3 } });
+  for (let i = 0; i < 3; i++) {
+    timer.toggle(now + i * 120_000);
+    assert.equal(timer.update(now + i * 120_000 + 60_000), "focus");
+    assert.equal(timer.longBreak, false);
+    timer.toggle(now + i * 120_000 + 60_000);
+    timer.update(now + (i + 1) * 120_000);
+  }
+  timer = new Pomodoro(JSON.parse(JSON.stringify(timer.saved)));
+  assert.equal(timer.nextLongBreak, true);
+  timer.toggle(now + 360_000);
+  timer.update(now + 420_000);
+  assert.equal(timer.longBreak, true);
+  assert.equal(timer.remaining, 180_000);
+  assert.equal(timer.cycle, 0);
+  assert.equal(timer.running, false);
+  assert.equal(timer.setMinutes({ focus: 1, break: 1, longBreak: 4 }), true);
+  assert.equal(timer.remaining, 240_000);
+});
+
+test("automatic phases use deadlines and stop at a disabled automatic transition", () => {
+  const now = new Date(2026, 10, 20, 9).getTime();
+  const timer = new Pomodoro({ minutes: { focus: 1, break: 1, longBreak: 2 }, autoBreak: true, autoFocus: true, interval: 2 });
+  timer.toggle(now);
+  assert.equal(timer.update(now + 250_000), "focus");
+  assert.equal(timer.phase, "break");
+  assert.equal(timer.longBreak, true);
+  assert.equal(timer.remaining, 50_000);
+  assert.equal(timer.todayRounds(now), 2);
+  timer.autoFocus = false;
+  assert.equal(timer.update(now + 500_000), "break");
+  assert.equal(timer.phase, "focus");
+  assert.equal(timer.running, false);
+  assert.equal(timer.remaining, 60_000);
+  const restored = new Pomodoro(timer.saved);
+  assert.equal(restored.autoBreak, true);
+  assert.equal(restored.autoFocus, false);
+  assert.equal(restored.interval, 2);
+  assert.equal(new Pomodoro({ minutes: { focus: 30, break: 6 } }).minutes.longBreak, 15);
+});
+
+test("breaks start automatically by default and old settings migrate only once", () => {
+  for (const saved of [undefined, { autoBreak: false, minutes: { focus: 1, break: 1 } }]) {
+    const timer = new Pomodoro(saved);
+    assert.equal(timer.autoBreak, true);
+    timer.toggle(1_000);
+    const end = 1_000 + timer.duration;
+    assert.equal(timer.update(end + 5_000), "focus");
+    assert.equal(timer.phase, "break");
+    assert.equal(timer.running, true);
+    assert.equal(timer.remaining, timer.duration - 5_000);
+    timer.autoBreak = false;
+    assert.equal(new Pomodoro(timer.saved).autoBreak, false);
+  }
 });
 
 test("mini retains HH:MM below an hour and distinguishes last minute from after work", () => {

@@ -123,8 +123,12 @@
         </div>
         <div class="time-grid pomodoro-fields">
           <label>专注（分钟）<input type="number" name="focus" min="1" max="120" required /></label>
-          <label>休息（分钟）<input type="number" name="break" min="1" max="60" required /></label>
+          <label>短休息（分钟）<input type="number" name="break" min="1" max="60" required /></label>
+          <label>长休息（分钟）<input type="number" name="longBreak" min="1" max="60" required /></label>
+          <label>长休息间隔（轮）<input type="number" name="interval" min="1" max="20" required /></label>
         </div>
+        <label class="switch-row"><span>自动开始休息</span><input type="checkbox" name="autoBreak" role="switch" /></label>
+        <label class="switch-row"><span>自动开始专注</span><input type="checkbox" name="autoFocus" role="switch" /></label>
         <p class="calendar-note" id="pomodoro-settings-note" hidden>更改当前阶段的时长会重置这段计时。</p>
         <div class="dialog-actions">
           <button type="button" id="pomodoro-settings-cancel" class="secondary-button">取消</button>
