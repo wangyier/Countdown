@@ -229,6 +229,7 @@ if (desktop) {
 
 function renderConfig(value) {
   config = value;
+  document.documentElement.dataset.theme = value.theme === "pink" ? "pink" : "green";
   document.body.dataset.mini = String(Boolean(value.mini_mode));
   $("#widget").hidden = Boolean(value.mini_mode);
   $("#mini-widget").hidden = !value.mini_mode;
@@ -344,6 +345,7 @@ async function openSettings() {
     renderConfig(current);
     for (const key of timeKeys) form.elements.namedItem(key).value = current[key];
     for (const key of toggleKeys) form.elements.namedItem(key).checked = current[key];
+    form.elements.namedItem("theme").value = document.documentElement.dataset.theme;
     updateReminderInput();
     $("#settings-error").hidden = true;
     dialog.showModal();
@@ -469,6 +471,7 @@ form.addEventListener("submit", async (event) => {
   const next = { ...config };
   for (const key of timeKeys) next[key] = form.elements.namedItem(key).value;
   for (const key of toggleKeys) next[key] = form.elements.namedItem(key).checked;
+  next.theme = form.elements.namedItem("theme").value;
   const errorLabel = $("#settings-error");
   errorLabel.hidden = true;
   try {

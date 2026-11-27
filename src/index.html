@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="themes.css" />
     <link rel="icon" type="image/png" href="assets/app-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="dark" />
@@ -115,6 +116,7 @@
           <label>午休开始<input type="time" name="lunch_start_time" required /></label>
           <label>午休结束<input type="time" name="lunch_end_time" required /></label>
         </div>
+        <label class="switch-row"><span>主题</span><select name="theme"><option value="green">深绿</option><option value="pink">浅粉</option></select></label>
         <label class="switch-row"><span>外卖提醒<small>每天最多一次，错过不补发</small></span><input type="checkbox" name="reminder_enabled" role="switch" /></label>
         <label class="switch-row" for="reminder-time-input"><span>提醒时间</span><input id="reminder-time-input" type="time" name="reminder_time" required /></label>
         <label class="switch-row"><span>开机自动启动<small>登录电脑后，自动开始倒计时</small></span><input type="checkbox" name="autostart_enabled" role="switch" /></label>

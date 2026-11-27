@@ -2,6 +2,15 @@ use chrono::NaiveTime;
 use serde::{Deserialize, Serialize};
 use std::{fs, io::Write, path::Path};
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Theme {
+    Pink,
+    #[default]
+    #[serde(other)]
+    Green,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(default)]
 pub struct WorkConfig {
@@ -15,6 +24,7 @@ pub struct WorkConfig {
     pub reminder_time: String,
     pub show_ip: bool,
     pub mini_mode: bool,
+    pub theme: Theme,
 }
 
 impl Default for WorkConfig {
@@ -30,6 +40,7 @@ impl Default for WorkConfig {
             reminder_time: "10:35".into(),
             show_ip: false,
             mini_mode: false,
+            theme: Theme::Green,
         }
     }
 }
@@ -111,17 +122,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn old_configs_receive_reminder_defaults_and_new_settings_roundtrip() {
+    fn old_configs_receive_defaults_and_new_settings_roundtrip() {
         let old: WorkConfig = serde_json::from_str(r#"{"start_time":"08:30"}"#).unwrap();
         assert!(old.reminder_enabled);
         assert!(!old.show_ip);
         assert!(!old.mini_mode);
+        assert_eq!(old.theme, Theme::Green);
         assert_eq!(old.reminder_time, "10:35");
         let changed = WorkConfig {
             show_ip: true,
             mini_mode: true,
             reminder_enabled: false,
             reminder_time: "12:20".into(),
+            theme: Theme::Pink,
             ..old
         };
         let restored: WorkConfig =

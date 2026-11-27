@@ -1,0 +1,39 @@
+:root {
+  color-scheme: dark;
+}
+
+:root[data-theme="pink"] {
+  color-scheme: light;
+  --text: #3d2430;
+  --muted-text: #73505c;
+  --accent: #a22e53;
+  --accent-border: #be65806b;
+  --accent-wash: #efd2db;
+  --accent-soft: #f4dbe2;
+  --accent-glow: #d7477233;
+  --break-accent: #8b4b43;
+  --break-border: #a4585066;
+  --error-text: #9e2a42;
+  --widget-highlight: #f8c8d971;
+  --widget-from: #fdf0f3;
+  --widget-to: #f5dfe5;
+  --surface: #fff5f7;
+  --control-surface: #f5e2e8;
+  --overlay-surface: #f9e8ed;
+  --tab-surface: #f0d4dd;
+  --selected-surface: #eab0bf;
+  --hover-surface: #f1d7df;
+  --border: #b9748b52;
+  --separator: #9f607532;
+  --inset-glint: #ffffff70;
+  --screen-shade: #57263640;
+  --bar-track: #eccbd5;
+  --bar-start: #df7d9a;
+  --bar-end: #c7436d;
+  --tray-meal: #805567;
+  --button-fill: #a22e53;
+  --button-hover: #882344;
+  --button-text: #fff8fa;
+  --switch-track: #c99ead;
+  --switch-thumb: #fff8fa;
+}

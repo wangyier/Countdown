@@ -13,6 +13,7 @@ const rows = ["pomodoro", "work", "lunch"].map(key => {
 });
 
 function render(data) {
+  document.documentElement.dataset.theme = data.theme === "pink" ? "pink" : "green";
   ip.textContent = data.ip ?? "";
   ip.hidden = data.ip == null;
   for (const row of rows) {

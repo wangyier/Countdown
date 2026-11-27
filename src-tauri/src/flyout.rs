@@ -28,6 +28,7 @@ pub(super) struct Row {
 
 #[derive(Serialize)]
 struct Panel {
+    theme: crate::config::Theme,
     ip: Option<String>,
     pomodoro: Option<Row>,
     work: Option<Row>,
@@ -62,6 +63,7 @@ fn panel_at(
     let elapsed = now.time().signed_duration_since(start).num_seconds();
     let until_lunch = lunch.signed_duration_since(start).num_seconds();
     Some(Panel {
+        theme: config.theme,
         ip: config
             .show_ip
             .then(|| crate::local_ip_suffix().unwrap_or_else(|| "—".into())),

@@ -36,7 +36,7 @@ cargo tauri build
 
 NSIS 安装包输出到 `src-tauri/target/release/bundle/nsis/`。无前端构建步骤，Tauri 直接嵌入 `src/`。
 
-release 程序位于 `src-tauri/target/release/countdown.exe`。打包后，NSIS 安装包位于 `src-tauri/target/release/bundle/nsis/我要第一个溜_0.3.5_x64-setup.exe`。
+release 程序位于 `src-tauri/target/release/countdown.exe`。打包后，NSIS 安装包位于 `src-tauri/target/release/bundle/nsis/我要第一个溜_0.3.6_x64-setup.exe`。
 
 若环境设置了 `CARGO_NET_OFFLINE=true` 且尚未缓存依赖，可在自己的 PowerShell 会话中执行 `$env:CARGO_NET_OFFLINE = 'false'` 后重试；代理应指向实际可连接的代理地址。
 

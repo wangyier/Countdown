@@ -9,6 +9,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   reminder_time: "10:35",
   show_ip: false,
   mini_mode: false,
+  theme: "green",
 });
 
 export function secondsOfDay(value) {
