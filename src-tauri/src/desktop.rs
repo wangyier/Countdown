@@ -1,4 +1,4 @@
-use crate::{AppState, calculator, config, toggle_pin};
+use crate::{AppState, calculator, config, flyout, toggle_pin};
 use chrono::{Local, NaiveDate, NaiveDateTime, Timelike};
 use serde::Deserialize;
 use std::{collections::BTreeSet, fs, time::Duration};
@@ -27,11 +27,45 @@ enum PomodoroClock {
 pub(super) struct PomodoroTooltip {
     phase: PomodoroPhase,
     clock: PomodoroClock,
+    #[serde(default)]
+    duration_ms: i64,
 }
 
 struct PomodoroMenu(MenuItem<Wry>);
 
 impl PomodoroTooltip {
+    fn remaining(self, now_ms: i64) -> (i64, bool) {
+        match self.clock {
+            PomodoroClock::Deadline(deadline) => (deadline.saturating_sub(now_ms), false),
+            PomodoroClock::Paused(remaining) => (remaining, true),
+        }
+    }
+
+    pub(super) fn row(self, now_ms: i64) -> Option<flyout::Row> {
+        let (remaining, paused) = self.remaining(now_ms);
+        if remaining <= 0 {
+            return None;
+        }
+        let seconds = (remaining as u64).div_ceil(1000);
+        let phase = match self.phase {
+            PomodoroPhase::Focus => "专注",
+            PomodoroPhase::Break => "休息",
+        };
+        Some(flyout::Row {
+            detail: if paused {
+                format!("{phase} · 已暂停")
+            } else {
+                phase.into()
+            },
+            time: format!("{:02}:{:02}", seconds / 60, seconds % 60),
+            progress: if self.duration_ms > 0 {
+                (100.0 * (1.0 - remaining as f64 / self.duration_ms as f64)).clamp(0.0, 100.0)
+            } else {
+                0.0
+            },
+        })
+    }
+
     fn line(self, now_ms: i64) -> Option<String> {
         let (remaining, paused) = match self.clock {
             PomodoroClock::Deadline(deadline) => (deadline.saturating_sub(now_ms), false),
@@ -99,9 +133,15 @@ pub fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         ],
     )?;
     app.manage(PomodoroMenu(pomodoro));
+    let custom_hover = match flyout::setup(app) {
+        Ok(()) => true,
+        Err(error) => {
+            eprintln!("托盘悬浮面板创建失败：{error}");
+            false
+        }
+    };
     let tray = TrayIconBuilder::with_id("countdown")
         .icon(tauri::include_image!("icons/tray/32x32.png"))
-        .tooltip("我要第一个溜")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
@@ -124,18 +164,34 @@ pub fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
             "quit" => app.exit(0),
             _ => {}
         })
-        .on_tray_icon_event(|tray, event| match event {
+        .on_tray_icon_event(move |tray, event| match event {
             TrayIconEvent::Click {
                 button: MouseButton::Left,
                 button_state: MouseButtonState::Up,
+                rect,
                 ..
-            } => toggle_window(tray.app_handle()),
+            } => {
+                flyout::dismiss(tray.app_handle(), rect);
+                toggle_window(tray.app_handle());
+            }
+            TrayIconEvent::Click { rect, .. } => flyout::dismiss(tray.app_handle(), rect),
+            TrayIconEvent::Enter { rect, .. } | TrayIconEvent::Move { rect, .. }
+                if custom_hover =>
+            {
+                flyout::track(tray.app_handle(), rect)
+            }
+            TrayIconEvent::Leave { .. } if custom_hover => flyout::leave(tray.app_handle()),
             TrayIconEvent::Enter { .. } => {
                 let app = tray.app_handle();
                 update_tooltip(app, &app.state::<AppState>());
             }
             _ => {}
         });
+    let tray = if custom_hover {
+        tray
+    } else {
+        tray.tooltip("我要第一个溜")
+    };
     tray.build(app)?;
     update_tooltip(app.handle(), &app.state::<AppState>());
     Ok(())
@@ -215,17 +271,23 @@ pub(super) fn update_tooltip(app: &tauri::AppHandle, state: &AppState) {
         return;
     };
     let now = Local::now();
-    let Ok(stats) = calculator::calculate(&runtime.config, now.naive_local()) else {
-        return;
-    };
-    let pomodoro = runtime
-        .pomodoro
-        .and_then(|timer| timer.line(now.timestamp_millis()));
-    let expired = pomodoro.is_none() && runtime.pomodoro.take().is_some();
+    let timer = runtime.pomodoro;
+    let expired = timer.is_some_and(|timer| timer.remaining(now.timestamp_millis()).0 <= 0);
+    if expired {
+        runtime.pomodoro = None;
+    }
+    let fallback = app.get_webview_window(flyout::LABEL).is_none();
+    let stats = fallback
+        .then(|| calculator::calculate(&runtime.config, now.naive_local()).ok())
+        .flatten();
     drop(runtime);
     if expired {
         update_pomodoro_menu(app, None);
     }
+    let Some(stats) = stats else {
+        return;
+    };
+    let pomodoro = timer.and_then(|timer| timer.line(now.timestamp_millis()));
     let suffix = if stats.schedule.show_ip {
         crate::local_ip_suffix()
     } else {
@@ -270,9 +332,7 @@ fn tooltip_text(
         lines.push(text);
     }
     let game = stats.guandan_remaining_seconds;
-    let guandan = if stats.guandan_ready {
-        "开饭时间到！".into()
-    } else if game == 0 {
+    let guandan = if game == 0 {
         String::new()
     } else {
         format!(
@@ -319,10 +379,12 @@ mod tests {
         let running = PomodoroTooltip {
             phase: PomodoroPhase::Focus,
             clock: PomodoroClock::Deadline(61_000),
+            duration_ms: 61_000,
         };
         assert_eq!(running.line(0).as_deref(), Some("番茄钟 · 专注 01:01"));
         assert_eq!(running.line(60_999).as_deref(), Some("番茄钟 · 专注 00:01"));
         assert_eq!(running.line(61_000), None);
+        assert_eq!(running.row(30_500).unwrap().progress, 50.0);
 
         let paused: PomodoroTooltip = serde_json::from_value(serde_json::json!({
             "phase": "break",
@@ -353,14 +415,8 @@ mod tests {
                 "11:44:59",
                 "我要第一个溜\n距离下班 05:45:01\n开饭倒计时 00:00:01",
             ),
-            (
-                "11:45:00",
-                "我要第一个溜\n距离下班 05:45:00 · 午休中\n开饭时间到！",
-            ),
-            (
-                "13:14:59",
-                "我要第一个溜\n距离下班 04:15:01 · 午休中\n开饭时间到！",
-            ),
+            ("11:45:00", "我要第一个溜\n距离下班 05:45:00 · 午休中"),
+            ("13:14:59", "我要第一个溜\n距离下班 04:15:01 · 午休中"),
             ("13:15:00", "我要第一个溜\n距离下班 04:15:00"),
             ("17:29:59", "我要第一个溜\n距离下班 00:00:01"),
             ("17:30:00", "我要第一个溜"),
@@ -384,14 +440,8 @@ mod tests {
             ..config::WorkConfig::default()
         };
         for (time, expected) in [
-            (
-                "13:14:59",
-                "我要第一个溜\n距离下班 04:45:01 · 午休中\n开饭时间到！",
-            ),
-            (
-                "13:15:00",
-                "我要第一个溜\n距离下班 04:45:00 · 午休中\n开饭时间到！",
-            ),
+            ("13:14:59", "我要第一个溜\n距离下班 04:45:01 · 午休中"),
+            ("13:15:00", "我要第一个溜\n距离下班 04:45:00 · 午休中"),
             ("14:00:00", "我要第一个溜\n距离下班 04:00:00"),
             ("17:30:00", "我要第一个溜\n距离下班 00:30:00"),
             ("17:59:59", "我要第一个溜\n距离下班 00:00:01"),

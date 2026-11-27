@@ -22,7 +22,7 @@
 
     <main class="widget" id="widget">
       <header class="topbar">
-        <div class="brand"><span class="brand-mark"><img src="assets/app-icon.png" alt="" draggable="false" /></span><h1>我要第一个溜<span> / 下班倒计时</span></h1></div>
+        <div class="brand"><span class="brand-mark"><svg aria-hidden="true"><use href="#icon-clock"/></svg></span><h1>我要第一个溜</h1></div>
         <div class="window-actions">
           <button class="icon-button" id="mini-button" aria-label="切换迷你模式" title="迷你模式"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><rect x="12" y="11" width="6" height="5" rx="1"/></svg></button>
           <button class="icon-button" id="pin-button" aria-label="窗口置顶" aria-pressed="false" title="窗口置顶"><svg><use href="#icon-pin"/></svg></button>
@@ -37,18 +37,20 @@
       </nav>
 
       <div id="work-view" class="widget-view">
-        <section class="day-heading"><span id="date-label">正在读取日期</span><span class="status" id="status" role="status"><i></i><span id="status-label">连接中</span></span></section>
+        <section class="day-heading"><span><strong id="date-day">正在读取日期</strong><span id="date-weekday"></span></span><span class="status" id="status" role="status"><i></i><span id="status-label">连接中</span></span></section>
 
         <section class="countdown-section" aria-label="下班倒计时">
           <p class="eyebrow" id="countdown-label">距离下班还有</p>
           <div class="digits" id="countdown" role="timer" aria-label="正在加载"><span id="hours">--</span><b>:</b><span id="minutes">--</span><b>:</b><span id="seconds">--</span></div>
-          <div class="digit-labels" aria-hidden="true"><span>小时</span><span>分钟</span><span>秒</span></div>
-          <p class="motto" id="motto">把时间留一点给生活。</p>
         </section>
 
-        <section class="guandan-card" id="guandan-card" aria-label="开饭倒计时">
-          <div><h2>开饭倒计时 <span aria-hidden="true">🍚</span></h2><p>按时吃饭，好好休息</p></div>
-          <div class="guandan-values"><strong id="guandan-countdown" role="timer" aria-label="正在加载">--:--:--</strong><span id="guandan-status">正在同步</span></div>
+        <section class="guandan-card" id="guandan-card" aria-labelledby="event-title" hidden>
+          <div class="event-copy">
+            <h2 id="event-title">事件倒计时</h2>
+            <span id="guandan-status"></span>
+          </div>
+          <div class="guandan-values" id="guandan-countdown" role="timer"><span id="event-prefix" hidden>还有</span><strong id="event-time">--:--:--</strong><span id="event-unit" hidden>天</span></div>
+          <progress id="event-progress" max="100" value="0" aria-label="事件倒计时进度" hidden></progress>
         </section>
 
         <section class="progress-section" aria-label="今日工时进度">
@@ -56,8 +58,11 @@
           <div class="progress-track" id="progress" role="progressbar" aria-label="今日工时完成比例" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="progress-fill"></div></div>
         </section>
 
-        <div class="reminder"><span class="reminder-icon"><svg><use href="#icon-bell"/></svg></span><span>好好吃饭，才有力气下班</span><span class="reminder-time" id="reminder-time">正在同步</span></div>
-        <footer><span id="ip-label" title="仅显示本地私有 IPv4 地址末段" hidden>IP · —</span><span id="footer-label" data-no-drag>准时收工，生活开场 <span class="footer-star">✳</span></span></footer>
+        <footer class="work-footer">
+          <span id="ip-label" title="仅显示本地私有 IPv4 地址末段" hidden>IP · —</span>
+          <span id="footer-label" data-no-drag hidden></span>
+          <span class="reminder"><svg aria-hidden="true"><use href="#icon-bell"/></svg><span class="reminder-time" id="reminder-time">正在同步</span></span>
+        </footer>
       </div>
 
       <section id="pomodoro-view" class="widget-view" aria-label="番茄钟" hidden>
@@ -71,8 +76,14 @@
           <button id="pomodoro-start" class="primary-button">开始专注</button>
           <button id="pomodoro-reset" class="secondary-button">重置</button>
         </div>
+        <p id="pomodoro-capacity" class="pomodoro-capacity">正在读取作息</p>
+        <p id="pomodoro-schedule-hint" class="pomodoro-capacity" hidden></p>
         <footer class="pomodoro-footer">
-          <span id="pomodoro-rounds">今日完成 0 轮</span>
+          <dl aria-label="今日番茄钟统计">
+            <div><dt>今日番茄</dt><dd id="pomodoro-rounds">0</dd></div>
+            <div><dt>专注分钟</dt><dd id="pomodoro-focus-minutes">0</dd></div>
+            <div><dt>中断次数</dt><dd id="pomodoro-interruptions">0</dd></div>
+          </dl>
           <span id="pomodoro-next">下一段 · 休息 5 分钟</span>
         </footer>
       </section>
@@ -110,11 +121,40 @@
         <label class="switch-row"><span>窗口始终置顶<small>在其他窗口上方显示挂件</small></span><input type="checkbox" name="always_on_top" role="switch" /></label>
         <label class="switch-row"><span>显示本机 IP<small>在左下角显示私有 IPv4 地址末段</small></span><input type="checkbox" name="show_ip" role="switch" /></label>
         <p class="calendar-note" id="schedule-note">每天按设置的上下班和午休时间计算</p>
+        <button type="button" class="secondary-button" id="open-events">管理倒计时事件</button>
         <p class="form-error" id="settings-error" role="alert" hidden></p>
         <div class="dialog-actions"><button type="button" class="secondary-button" id="cancel-settings">取消</button><button type="submit" class="primary-button" id="save-button">保存设置 <span aria-hidden="true">↗</span></button></div>
       </form>
     </dialog>
 
+    <dialog id="event-settings" aria-labelledby="event-settings-title">
+      <form id="event-form">
+        <div class="dialog-heading"><h2 id="event-settings-title">倒计时事件</h2><button type="button" class="icon-button" id="close-events" aria-label="关闭事件设置"><svg><use href="#icon-close"/></svg></button></div>
+        <label class="switch-row"><span>周末倒计时</span><input type="checkbox" name="weekend" role="switch"></label>
+        <div class="time-grid event-fields">
+          <label>周末开始<select name="weekday"></select></label>
+          <label>时间（留空跟随下班）<input type="time" name="weekendTime"></label>
+        </div>
+        <label class="switch-row"><span>发薪日</span><input type="checkbox" name="payday" role="switch"></label>
+        <div class="event-fields"><label>每月几号<input type="number" name="paydayDate" min="1" max="31" required></label></div>
+        <div id="custom-events"></div>
+        <button type="button" class="secondary-button" id="add-event">添加自定义事件</button>
+        <div class="event-fields"><label>首页优先显示<select name="priority"></select></label></div>
+        <p id="event-error" class="form-error" role="alert" hidden></p>
+        <div class="dialog-actions"><button type="button" class="secondary-button" id="cancel-events">取消</button><button class="primary-button" type="submit">保存事件</button></div>
+      </form>
+    </dialog>
+    <template id="custom-event-template">
+      <fieldset class="event-fields event-custom">
+        <legend>自定义事件</legend>
+        <label>名称<input name="eventTitle" type="text" maxlength="20" required placeholder="例如 国庆假期"></label>
+        <div class="time-grid">
+          <label>日期<input name="eventDate" type="date" min="1900-01-01" max="9999-12-31" required></label>
+          <label>时间<input name="eventTime" type="time" required></label>
+        </div>
+        <div class="event-row"><label><input name="eventYearly" type="checkbox">每年重复</label><button type="button" class="secondary-button" data-remove-event>删除</button></div>
+      </fieldset>
+    </template>
     <dialog id="pomodoro-settings" aria-labelledby="pomodoro-settings-title">
       <form id="pomodoro-form">
         <div class="dialog-heading">

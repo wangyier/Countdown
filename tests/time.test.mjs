@@ -3,7 +3,84 @@ import assert from "node:assert/strict";
 import { DEFAULT_CONFIG, validateSchedule, formatCountdown, miniDisplay } from "../src/time.js";
 import { previewStats } from "../src/preview.js";
 import { attachWindowDrag, attachMiniDrag } from "../src/drag.js";
-import { Pomodoro, formatPomodoro } from "../src/pomodoro.js";
+import { Pomodoro, formatPomodoro, focusSchedule } from "../src/pomodoro.js";
+import { selectEvent, eventDisplay, eventProgress, loadEvents } from "../src/events.js";
+
+test("event card hands off after lunch and falls back when a priority event expires", () => {
+  const settings = loadEvents({ getItem: () => null });
+  settings.weekend.enabled = true;
+  settings.custom.push({ id: "holiday", title: "假期", date: "2026-11-27", time: "16:00", yearly: false });
+  const at = (hour, minute) => +new Date(2026, 10, 27, hour, minute);
+  const pick = now => selectEvent(settings, previewStats(DEFAULT_CONFIG, new Date(now)), now);
+  assert.equal(pick(at(11, 44)).id, "meal");
+  assert.equal(eventDisplay(pick(at(12, 0)), at(12, 0)).detail, "开饭时间到！");
+  assert.equal(eventProgress(pick(at(12, 0)), at(12, 0)), 100);
+  assert.equal(pick(at(13, 15)).id, "holiday");
+  assert.equal(eventProgress(pick(at(13, 15)), at(13, 15)), null);
+  settings.custom[0].createdAt = at(12, 0);
+  assert.equal(eventProgress(pick(at(14, 0)), at(14, 0)), 50);
+  settings.priority = "weekend";
+  const weekend = pick(at(13, 15));
+  assert.equal(weekend.target, at(17, 30));
+  assert.equal(eventProgress(weekend, at(13, 15)), 97);
+  settings.priority = "holiday";
+  assert.equal(pick(at(16, 0)).id, "weekend");
+  assert.equal(eventDisplay(pick(at(16, 0)), at(16, 0)).time, "01:30:00");
+});
+
+test("monthly payday clamps to month end and a yearly leap-day event skips non-leap years", () => {
+  const settings = loadEvents({ getItem: () => null });
+  const now = +new Date(2027, 1, 15, 15);
+  const stats = previewStats(DEFAULT_CONFIG, new Date(now));
+  settings.payday = { enabled: true, day: 31 };
+  const payday = selectEvent(settings, stats, now);
+  assert.equal(payday.target, +new Date(2027, 1, 28));
+  assert.equal(payday.start, +new Date(2027, 0, 31));
+  settings.custom.push({ id: "leap", title: "纪念日", date: "2024-02-29", time: "09:00", yearly: true });
+  settings.priority = "leap";
+  const leap = selectEvent(settings, stats, now);
+  assert.equal(leap.target, +new Date(2028, 1, 29, 9));
+  assert.equal(leap.start, +new Date(2024, 1, 29, 9));
+});
+
+test("focus planning excludes lunch and rejects a session crossing the next boundary", () => {
+  const timer = new Pomodoro();
+  const at = (h, m) => new Date(2026, 10, 27, h, m).getTime();
+  const plan = now => focusSchedule(DEFAULT_CONFIG, now, timer.minutes);
+  assert.equal(plan(at(9, 0)).rounds, 13);
+  assert.equal(plan(at(12, 0)).available, 0);
+  const now = at(17, 20);
+  assert.equal(plan(now).available, 600_000);
+  timer.toggle(now, time => plan(time).available);
+  assert.equal(timer.running, false);
+  timer.startWrapUp(now, 10);
+  assert.equal(timer.update(at(17, 30)), "wrap-up");
+  assert.equal(timer.running, false);
+  assert.equal(timer.todayRounds(now), 0);
+  assert.equal(timer.todayActivity(now).minutes, 10);
+
+  const sixHours = { ...DEFAULT_CONFIG, lunch_start_time: "10:00", lunch_end_time: "11:00" };
+  assert.equal(focusSchedule(sixHours, at(11, 4), timer.minutes).rounds, 12);
+  const automatic = new Pomodoro({ autoFocus: true, minutes: { focus: 25, break: 5 } });
+  automatic.toggle(at(11, 14));
+  automatic.update(at(11, 44), time => plan(time).available);
+  assert.equal(automatic.phase, "focus");
+  assert.equal(automatic.running, false);
+});
+
+test("daily activity persists completed time and does not count a paused reset twice", () => {
+  const timer = new Pomodoro({ minutes: { focus: 5, break: 1 } });
+  const now = new Date(2026, 10, 27, 9).getTime();
+  timer.toggle(now);
+  timer.toggle(now + 120_000);
+  timer.reset(now + 180_000);
+  timer.toggle(now + 240_000);
+  timer.update(now + 540_000);
+  const restored = new Pomodoro(JSON.parse(JSON.stringify(timer.saved)));
+  assert.equal(restored.todayRounds(now), 1);
+  assert.deepEqual(restored.todayActivity(now), { minutes: 7, interruptions: 1 });
+  assert.deepEqual(restored.todayActivity(now + 86_400_000), { minutes: 0, interruptions: 0 });
+});
 
 test("pomodoro pauses and resumes without counting hidden time twice", () => {
   const timer = new Pomodoro({ settingsVersion: 1, autoBreak: false, minutes: { focus: 1, break: 1 } });

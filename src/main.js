@@ -1,7 +1,9 @@
 import { validateSchedule, formatCountdown, STATUS_DETAILS, miniDisplay } from "./time.js";
 import { createPreviewBridge } from "./preview.js";
 import { attachWindowDrag, attachMiniDrag } from "./drag.js";
-import { Pomodoro, POMODORO_STORAGE_KEY, formatPomodoro } from "./pomodoro.js";
+import { Pomodoro, POMODORO_STORAGE_KEY, formatPomodoro, focusSchedule } from "./pomodoro.js";
+import { selectEvent, eventDisplay, eventProgress } from "./events.js";
+import { setupEventSettings } from "./event-settings.js";
 
 const $ = (selector) => document.querySelector(selector);
 const desktop = Boolean(window.__TAURI__?.core?.invoke);
@@ -9,6 +11,7 @@ const dialog = $("#settings-dialog");
 const form = $("#settings-form");
 const pomodoroDialog = $("#pomodoro-settings");
 const pomodoroForm = $("#pomodoro-form");
+const eventSettings = setupEventSettings(() => { void sync(); });
 const timeKeys = ["start_time", "end_time", "lunch_start_time", "lunch_end_time", "reminder_time"];
 const toggleKeys = ["autostart_enabled", "always_on_top", "reminder_enabled", "show_ip"];
 let invoke;
@@ -49,6 +52,7 @@ function syncTrayPomodoro() {
   if (!desktop || !invoke) return;
   const timer = pomodoro.active ? {
     phase: pomodoro.phase,
+    duration_ms: pomodoro.duration,
     clock: pomodoro.running
       ? { kind: "deadline", milliseconds: pomodoro.deadline }
       : { kind: "paused", milliseconds: pomodoro.remaining },
@@ -110,24 +114,45 @@ function renderMini() {
 
 function renderPomodoro(now) {
   const focus = pomodoro.phase === "focus";
+  const plan = focusSchedule(config, now, pomodoro.minutes);
+  const short = shortFocus(plan);
   const phase = $("#pomodoro-phase");
-  const phaseLabel = focus ? "专注时间" : pomodoro.longBreak ? "长休息" : "短休息";
+  const phaseLabel = short || pomodoro.wrapUpDuration ? "收尾专注" : focus ? "专注时间" : pomodoro.longBreak ? "长休息" : "短休息";
   if (phase.textContent !== phaseLabel) phase.textContent = phaseLabel;
   $("#pomodoro-clock").dataset.phase = pomodoro.phase;
-  $("#pomodoro-clock").style.setProperty("--elapsed", `${pomodoro.progress / 100}turn`);
-  $("#pomodoro-time").textContent = formatPomodoro(pomodoro.remaining);
+  $("#pomodoro-clock").style.setProperty("--elapsed", `${short ? 0 : pomodoro.progress / 100}turn`);
+  $("#pomodoro-time").textContent = formatPomodoro(short ? short * 60_000 : pomodoro.remaining);
+  const blocked = !pomodoro.running && focus && (plan?.available ?? 0) < pomodoro.remaining;
   $("#pomodoro-start").textContent = pomodoro.running ? "暂停"
-    : pomodoro.active ? "继续" : focus ? "开始专注" : "开始休息";
-  $("#pomodoro-rounds").textContent = `今日完成 ${pomodoro.todayRounds(now)} 轮`;
-  $("#pomodoro-next").textContent = focus ? `下一段 · ${pomodoro.nextLongBreak ? "长休息" : "短休息"} ${pomodoro.minutes[pomodoro.nextLongBreak ? "longBreak" : "break"]} 分钟`
+    : short ? `${short} 分钟收尾` : pomodoro.active ? "继续" : focus ? "开始专注" : "开始休息";
+  $("#pomodoro-capacity").textContent = plan ? `到下班还能安排约 ${plan.rounds} 个番茄＋短休` : "正在读取作息";
+  const hint = $("#pomodoro-schedule-hint");
+  hint.hidden = !blocked;
+  hint.textContent = short ? `快到${plan.cutoff}了，来不及完整专注，改成 ${short} 分钟收尾`
+    : plan?.available ? `距离${plan.cutoff}不足 1 分钟` : plan?.unavailable ?? "正在读取作息";
+  const activity = pomodoro.todayActivity(now);
+  $("#pomodoro-rounds").textContent = pomodoro.todayRounds(now);
+  $("#pomodoro-focus-minutes").textContent = activity.minutes;
+  $("#pomodoro-interruptions").textContent = activity.interruptions;
+  $("#pomodoro-next").textContent = short || pomodoro.wrapUpDuration ? "收尾完成后停止计时" : focus ? `下一段 · ${pomodoro.nextLongBreak ? "长休息" : "短休息"} ${pomodoro.minutes[pomodoro.nextLongBreak ? "longBreak" : "break"]} 分钟`
     : `下一段 · 专注 ${pomodoro.minutes.focus} 分钟`;
   renderMini();
   syncTrayPomodoro();
 }
 
+function shortFocus(plan) {
+  if (!plan || pomodoro.running || pomodoro.phase !== "focus" || plan.available >= pomodoro.remaining) return 0;
+  return Math.floor(plan.available / 60_000);
+}
+
+function focusLimit(at) {
+  return focusSchedule(config, at, pomodoro.minutes)?.available ?? 0;
+}
+
 function tickPomodoro() {
   const now = Date.now();
-  if (pomodoro.update(now) === "focus") savePomodoro();
+  const finished = pomodoro.update(now, focusLimit);
+  if (finished === "focus" || finished === "wrap-up") savePomodoro();
   renderPomodoro(now);
 }
 
@@ -147,13 +172,26 @@ $("#work-view-button").addEventListener("click", () => selectView("work"));
 $("#pomodoro-view-button").addEventListener("click", () => selectView("pomodoro"));
 function togglePomodoro() {
   const now = Date.now();
-  if (pomodoro.toggle(now) === "focus") savePomodoro();
+  const plan = focusSchedule(config, now, pomodoro.minutes);
+  if (!pomodoro.running && pomodoro.phase === "focus" && pomodoro.remaining > (plan?.available ?? 0)) {
+    const short = shortFocus(plan);
+    if (!short) {
+      notify(plan?.available ? `距离${plan.cutoff}不足 1 分钟` : plan?.unavailable ?? "正在读取作息");
+      return;
+    }
+    pomodoro.startWrapUp(now, short);
+    notify(`已开始 ${short} 分钟收尾`);
+  } else {
+    pomodoro.toggle(now, focusLimit);
+    savePomodoro();
+  }
   renderPomodoro(now);
 }
 $("#pomodoro-start").addEventListener("click", togglePomodoro);
 $("#pomodoro-reset").addEventListener("click", () => {
   tickPomodoro();
-  pomodoro.reset();
+  pomodoro.reset(Date.now());
+  savePomodoro();
   tickPomodoro();
 });
 $("#pomodoro-settings-close").addEventListener("click", () => pomodoroDialog.close());
@@ -166,7 +204,7 @@ pomodoroForm.addEventListener("submit", (event) => {
     focus: elements.namedItem("focus").valueAsNumber,
     break: elements.namedItem("break").valueAsNumber,
     longBreak: elements.namedItem("longBreak").valueAsNumber,
-  })) return;
+  }, Date.now())) return;
   pomodoro.interval = elements.namedItem("interval").valueAsNumber;
   pomodoro.autoBreak = elements.namedItem("autoBreak").checked;
   pomodoro.autoFocus = elements.namedItem("autoFocus").checked;
@@ -190,14 +228,14 @@ if (desktop) {
 }
 
 function renderConfig(value) {
-  const widget = $("#widget");
-  if (value.mini_mode) widget.classList.remove("widget-expanded");
-  else if (config?.mini_mode) widget.classList.add("widget-expanded");
   config = value;
   document.body.dataset.mini = String(Boolean(value.mini_mode));
-  widget.hidden = Boolean(value.mini_mode);
+  $("#widget").hidden = Boolean(value.mini_mode);
   $("#mini-widget").hidden = !value.mini_mode;
-  if (value.mini_mode && dialog.open) dialog.close();
+  if (value.mini_mode) {
+    if (eventSettings.dialog.open) eventSettings.dialog.close();
+    if (dialog.open) dialog.close();
+  }
   if (!value.mini_mode) { closeMiniMenu(false); $("#mini-notice").hidden = true; }
   $("#ip-label").hidden = !value.show_ip;
   const pin = $("#pin-button");
@@ -216,17 +254,27 @@ function renderStats(value) {
   $("#widget").dataset.status = value.status;
   $("#status-label").textContent = details.label;
   $("#countdown-label").textContent = details.heading;
-  $("#motto").textContent = details.motto;
   const parts = formatCountdown(value.remaining_seconds);
   ["hours", "minutes", "seconds"].forEach((id, index) => { $(`#${id}`).textContent = parts[index]; });
   $("#countdown").setAttribute("aria-label", `${parts[0]}小时${parts[1]}分钟${parts[2]}秒`);
-  const guandanParts = formatCountdown(value.guandan_remaining_seconds);
-  $("#guandan-countdown").textContent = guandanParts.join(":");
-  $("#guandan-countdown").setAttribute("aria-label", `${guandanParts[0]}小时${guandanParts[1]}分钟${guandanParts[2]}秒`);
-  const guandanReached = value.guandan_ready;
-  $("#guandan-card").dataset.reached = String(guandanReached);
-  $("#guandan-status").textContent = guandanReached ? "开饭时间到！"
-    : value.guandan_remaining_seconds === 0 ? "今日已结束" : `目标 ${value.schedule.lunch_start_time}`;
+  const now = Date.now();
+  const event = selectEvent(eventSettings.settings, value, now);
+  const card = $("#guandan-card");
+  card.hidden = !event;
+  if (event) {
+    const display = eventDisplay(event, now);
+    card.dataset.reached = String(Boolean(event.reached));
+    $("#event-title").textContent = event.title;
+    card.dataset.days = String(display.days != null);
+    $("#event-prefix").hidden = $("#event-unit").hidden = display.days == null;
+    $("#event-time").textContent = display.days ?? display.time;
+    $("#guandan-countdown").setAttribute("aria-label", display.time);
+    $("#guandan-status").textContent = display.detail;
+    const percent = eventProgress(event, now);
+    const bar = $("#event-progress");
+    bar.hidden = percent == null;
+    if (percent != null) bar.value = percent;
+  }
   const progress = Math.min(100, Math.max(0, value.progress_percent));
   const mini = miniDisplay(value);
   workMini = {
@@ -242,7 +290,8 @@ function renderStats(value) {
   $("#progress-fill").style.width = `${progress}%`;
   $("#progress").setAttribute("aria-valuenow", progress.toFixed(1));
   const date = new Date(`${value.date}T12:00:00`);
-  $("#date-label").textContent = new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long" }).format(date);
+  $("#date-day").textContent = `${date.getMonth() + 1}月${date.getDate()}日`;
+  $("#date-weekday").textContent = ` · ${date.toLocaleDateString("zh-CN", { weekday: "long" })}`;
   if (value.schedule) renderConfig(value.schedule);
   renderInfo();
 }
@@ -251,9 +300,9 @@ function renderInfo() {
   if (info) $("#ip-label").textContent = `IP · ${info.local_ip_suffix ?? "—"}`;
   const warnings = info?.warnings || [];
   const footer = $("#footer-label");
-  footer.textContent = warnings.length ? "设置状态需要检查 ⓘ"
-    : desktop ? "准时收工，生活开场 ✳" : "浏览器预览 · 系统功能未启用";
-  footer.title = warnings.join("\n") || (desktop ? "Esc 隐藏 · 托盘点击恢复" : "预览设置仅保存在浏览器，托盘、置顶、通知和自启动请使用桌面版。");
+  footer.hidden = warnings.length === 0;
+  footer.textContent = "设置状态需要检查 ⓘ";
+  footer.title = warnings.join("\n");
   footer.tabIndex = warnings.length ? 0 : -1;
   $("#schedule-note").textContent = `每天按设置的上下班和午休时间计算。${desktop ? "" : "预览模式不修改系统设置。"}`;
 }
@@ -302,21 +351,51 @@ async function openSettings() {
   finally { $("#settings-button").disabled = false; }
 }
 
+function waitForWindowViewport() {
+  const body = document.body;
+  const fits = () => Math.abs(innerWidth - body.clientWidth) <= 1
+    && Math.abs(innerHeight - body.clientHeight) <= 1;
+  if (fits()) return;
+  return new Promise(resolve => {
+    const finish = () => {
+      clearTimeout(timeout);
+      window.removeEventListener("resize", resized);
+      resolve();
+    };
+    const resized = () => { if (fits()) finish(); };
+    const timeout = setTimeout(finish, 120);
+    window.addEventListener("resize", resized);
+  });
+}
+
 async function setMiniMode(enabled, expandedView) {
-  if (saving || switchingMode || !invoke) return;
+  if (saving || switchingMode || !invoke || !config || config.mini_mode === enabled) return;
   switchingMode = true;
   closeMiniMenu();
-  if (desktop && !enabled) document.body.dataset.expanding = "";
+  const maskResize = desktop && !document.hidden;
   try {
+    if (maskResize) {
+      document.body.dataset.resizingWindow = "";
+      // Let the WebView paint a clear frame before Windows moves its surface.
+      await Promise.race([
+        new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+        new Promise(resolve => setTimeout(resolve, 100)),
+      ]);
+    }
     const next = await invoke("set_mini_mode", { enabled });
     modeRevision += 1;
     if (expandedView) selectView(expandedView);
     renderConfig(next);
-    void sync();
+    if (maskResize && !document.hidden) await waitForWindowViewport();
   } finally {
-    delete document.body.dataset.expanding;
+    delete document.body.dataset.resizingWindow;
     switchingMode = false;
   }
+  if (!document.hidden && matchMedia("(prefers-reduced-motion: no-preference)").matches) {
+    const view = $(config.mini_mode ? "#mini-widget" : "#widget");
+    view.animate({ opacity: [0.7, 1] }, { duration: 140, easing: "ease-out" });
+  }
+  void sync();
 }
 $("#mini-button").addEventListener("click", () => { void setMiniMode(true).catch(report); });
 function expand() {
@@ -359,6 +438,7 @@ function toggleMiniModeFromTray() {
   if (config.mini_mode) expand();
   else void setMiniMode(true).catch(report);
 }
+document.addEventListener("contextmenu", (event) => event.preventDefault());
 $("#mini-widget").addEventListener("contextmenu", openMiniMenu);
 $("#mini-widget").addEventListener("keydown", (event) => {
   if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) openMiniMenu(event);
@@ -430,7 +510,7 @@ async function hide() {
 $("#hide-button").addEventListener("click", hide);
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !$("#mini-menu").hidden) { event.preventDefault(); closeMiniMenu(); return; }
-  if (event.key === "Escape" && !dialog.open && !pomodoroDialog.open) { event.preventDefault(); void hide(); }
+  if (event.key === "Escape" && !dialog.open && !pomodoroDialog.open && !eventSettings.dialog.open) { event.preventDefault(); void hide(); }
 });
 $("#footer-label").addEventListener("click", () => {
   if (info?.warnings?.length) notify($("#footer-label").title);

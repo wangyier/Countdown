@@ -61,8 +61,7 @@ pub fn resize(window: &tauri::WebviewWindow, mini: bool) -> tauri::Result<()> {
     let old_position = window.outer_position()?;
     let old_size = window.outer_size()?;
     let monitor = window.current_monitor()?;
-    window.set_size(mode_size(mini))?;
-    let size = window.outer_size()?;
+    let size = mode_size(mini).to_physical::<u32>(window.scale_factor()?);
     let mut x = i64::from(old_position.x) + i64::from(old_size.width) - i64::from(size.width);
     let mut y = i64::from(old_position.y) + i64::from(old_size.height) - i64::from(size.height);
     if let Some(monitor) = monitor {
@@ -78,7 +77,36 @@ pub fn resize(window: &tauri::WebviewWindow, mini: bool) -> tauri::Result<()> {
             top + i64::from(area.size.height.saturating_sub(size.height)),
         );
     }
-    window.set_position(tauri::PhysicalPosition::new(x as i32, y as i32))
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            SWP_NOACTIVATE, SWP_NOZORDER, SetWindowPos,
+        };
+
+        // Moving and resizing together keeps Windows from drawing a frame at the old origin.
+        let hwnd = window.hwnd()?;
+        // SAFETY: Tauri supplies the live top-level window handle for this command.
+        let resized = unsafe {
+            SetWindowPos(
+                hwnd.0,
+                std::ptr::null_mut(),
+                x as i32,
+                y as i32,
+                size.width as i32,
+                size.height as i32,
+                SWP_NOACTIVATE | SWP_NOZORDER,
+            )
+        };
+        if resized == 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        window.set_size(size)?;
+        window.set_position(tauri::PhysicalPosition::new(x as i32, y as i32))
+    }
 }
 
 #[cfg(test)]

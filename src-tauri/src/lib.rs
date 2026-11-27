@@ -2,6 +2,7 @@ mod calculator;
 mod clock;
 mod config;
 mod desktop;
+mod flyout;
 mod position;
 
 use calculator::{CountdownStats, calculate};
@@ -272,6 +273,9 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if window.label() != "main" {
+                return;
+            }
             if let tauri::WindowEvent::Moved(point) = event {
                 if let Some(state) = window.app_handle().try_state::<AppState>() {
                     let saved = position::SavedPosition {

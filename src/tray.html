@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="tray.css">
+  <script type="module" src="tray.js"></script>
+  <title>我要第一个溜</title>
+</head>
+<body>
+  <main id="panel" hidden>
+    <header>
+      <img src="assets/app-icon.png" alt="" width="18" height="18">
+      <strong>我要第一个溜</strong>
+      <span id="ip" title="本机 IP 末段" hidden></span>
+    </header>
+    <section id="pomodoro" hidden>
+      <div class="line"><span>番茄钟</span><small></small><b></b></div>
+      <progress max="100" value="0" aria-label="番茄钟阶段进度"></progress>
+    </section>
+    <section id="work" hidden>
+      <div class="line"><span>距离下班</span><small></small><b></b></div>
+      <progress max="100" value="0" aria-label="有效工时进度"></progress>
+    </section>
+    <section id="lunch" hidden>
+      <div class="line"><span>开饭倒计时</span><small></small><b></b></div>
+      <progress max="100" value="0" aria-label="开饭倒计时进度"></progress>
+    </section>
+  </main>
+</body>
+</html>

@@ -585,7 +585,7 @@ dependencies = [
 
 [[package]]
 name = "countdown"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "chrono",
  "local-ip-address",
@@ -596,6 +596,7 @@ dependencies = [
  "tauri-plugin-autostart",
  "tauri-plugin-notification",
  "tauri-plugin-single-instance",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

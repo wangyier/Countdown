@@ -42,8 +42,8 @@ export function miniDisplay(stats) {
 }
 
 export const STATUS_DETAILS = Object.freeze({
-  before_work: { label: "上班前", heading: "距离下班还有", motto: "新的一天，按自己的节奏出发。" },
-  working: { label: "工作中", heading: "距离下班还有", motto: "认真工作，也别忘了准时生活。" },
-  lunch_break: { label: "午休中", heading: "距离下班还有", motto: "好好吃饭，午休不必争分夺秒。" },
-  after_work: { label: "已下班", heading: "今日工作已结束", motto: "今天辛苦了，接下来是你的时间。" },
+  before_work: { label: "上班前", heading: "距离下班还有" },
+  working: { label: "工作中", heading: "距离下班还有" },
+  lunch_break: { label: "午休中", heading: "距离下班还有" },
+  after_work: { label: "已下班", heading: "今日工作已结束" },
 });
